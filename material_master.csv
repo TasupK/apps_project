@@ -1,0 +1,8 @@
+MATERIAL_ID,CATEGORY,TECHNICAL_SPECIFICATION
+MAT-1001,Bearing,Deep groove ball bearing 6204-ZZ. Shielded metal on both sides. Inner diameter 20mm outer diameter 47mm width 14mm. Steel material. Max RPM 10000. Operating temp -20C to 120C.
+MAT-1002,Bearing,Deep groove ball bearing 6204-2RS. Rubber sealed on both sides. Inner diameter 20mm outer diameter 47mm width 14mm. Steel material. Max RPM 9000. Operating temp -20C to 110C. Excellent for dusty environments.
+MAT-1003,Bearing,Cylindrical roller bearing. Inner diameter 25mm outer diameter 50mm width 15mm. High load capacity.
+MAT-2001,Motor,Industrial AC Motor 5HP. 1800 RPM. 3-phase 460V. Frame size 184T. Cast iron body.
+MAT-2002,Motor,Industrial AC Motor 5HP. 1750 RPM. 3-phase 460V. Frame size 184T. Aluminum body. High efficiency.
+MAT-3001,Fastener,Hex head bolt M10 thread pitch 1.5 length 50mm. Stainless steel 304.
+MAT-3002,Fastener,Hex head bolt M10 thread pitch 1.5 length 55mm. Stainless steel 316. High corrosion resistance.
