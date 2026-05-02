@@ -8,6 +8,7 @@
 ## Phase Files
 
 - [Phase 1: Mock Data Layer & Monitor Agent](PHASE_1.md)
+- [Phase 1 Format Contract](PHASE_1_FORMAT_CONTRACT.md)
 - [Phase 2: Web Research Agent & Source Collection](PHASE_2.md)
 - [Phase 3: Trust & Evaluation Agent](PHASE_3.md)
 - [Phase 4: Orchestration & Human-in-the-Loop](PHASE_4.md)
