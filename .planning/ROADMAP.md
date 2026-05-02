@@ -5,6 +5,14 @@
 
 ## Milestone 1: PoC 완성 (6주)
 
+## Phase Files
+
+- [Phase 1: Mock Data Layer & Monitor Agent](PHASE_1.md)
+- [Phase 2: Web Research Agent & Source Collection](PHASE_2.md)
+- [Phase 3: Trust & Evaluation Agent](PHASE_3.md)
+- [Phase 4: Orchestration & Human-in-the-Loop](PHASE_4.md)
+- [Phase 5: Streamlit UI & Demo](PHASE_5.md)
+
 ### Phase 1: 뼈대 세우기 — Mock Data Layer & Monitor Agent
 *주차: 1~2주차 | 담당: 팀원 A*
 
