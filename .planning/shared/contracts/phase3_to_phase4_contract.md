@@ -18,6 +18,8 @@ Phase 4는 후보를 다시 평가하지 않는다. Phase 4는 이 JSON의 `next
 | Artifact | `output/evaluation_report_batch.json` |
 | Format | JSON |
 | Encoding | UTF-8 |
+| Schema | `.planning/shared/contracts/evaluation_report_batch.schema.json` |
+| Sample | `.planning/shared/contracts/evaluation_report_batch.sample.json` |
 | Producer command | `python3 agents/evaluation_agent.py --batch --output output/evaluation_report_batch.json` |
 
 ## Next Action Rules
@@ -120,3 +122,11 @@ Phase 4는 모든 평가 로직을 다시 계산하지 않고 아래 필드만 �
 - Phase 4 owns workflow state, user approval, rejection handling, and handoff to PO draft creation.
 - Phase 4 must not recalculate Phase 3 scores.
 - Phase 3 must not call Phase 5 or create PO drafts directly.
+
+## Validation
+
+Phase 3 output should pass the shared contract tests before handoff.
+
+```bash
+python3 -m unittest tests/test_phase3_contract.py
+```

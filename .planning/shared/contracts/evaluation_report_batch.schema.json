@@ -1,0 +1,131 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "evaluation_report_batch.schema.json",
+  "title": "Phase 3 Evaluation Batch Report",
+  "type": "object",
+  "required": [
+    "batch_report_id",
+    "generated_at",
+    "mode",
+    "candidate_count",
+    "decision_counts",
+    "top_candidate_id",
+    "next_action",
+    "items"
+  ],
+  "properties": {
+    "batch_report_id": {
+      "type": "string"
+    },
+    "generated_at": {
+      "type": "string"
+    },
+    "mode": {
+      "type": "string",
+      "enum": ["normal", "urgent"]
+    },
+    "candidate_count": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "decision_counts": {
+      "type": "object",
+      "additionalProperties": {
+        "type": "integer",
+        "minimum": 0
+      }
+    },
+    "top_candidate_id": {
+      "type": ["string", "null"]
+    },
+    "next_action": {
+      "type": "string",
+      "enum": ["approval_pending", "manual_review", "no_viable_candidate"]
+    },
+    "items": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/evaluation_report"
+      }
+    }
+  },
+  "$defs": {
+    "evaluation_report": {
+      "type": "object",
+      "required": [
+        "report_id",
+        "generated_at",
+        "mode",
+        "target_material",
+        "candidate_material",
+        "spec_analysis",
+        "scores",
+        "source_trust_breakdown",
+        "decision_context"
+      ],
+      "properties": {
+        "report_id": {
+          "type": "string"
+        },
+        "generated_at": {
+          "type": "string"
+        },
+        "mode": {
+          "type": "string",
+          "enum": ["normal", "urgent"]
+        },
+        "target_material": {
+          "type": "object"
+        },
+        "candidate_material": {
+          "type": "object"
+        },
+        "spec_analysis": {
+          "type": "object"
+        },
+        "scores": {
+          "type": "object"
+        },
+        "source_trust_breakdown": {
+          "type": "object"
+        },
+        "decision_context": {
+          "type": "object",
+          "required": [
+            "decision",
+            "risk_level",
+            "recommendation_reason",
+            "approval_conditions",
+            "rejection_reason",
+            "review_required"
+          ],
+          "properties": {
+            "decision": {
+              "type": "string",
+              "enum": ["recommend", "conditional_approve", "review_required", "reject"]
+            },
+            "risk_level": {
+              "type": "string",
+              "enum": ["Low", "Medium", "High"]
+            },
+            "recommendation_reason": {
+              "type": "string"
+            },
+            "approval_conditions": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "rejection_reason": {
+              "type": ["string", "null"]
+            },
+            "review_required": {
+              "type": "boolean"
+            }
+          }
+        }
+      }
+    }
+  }
+}

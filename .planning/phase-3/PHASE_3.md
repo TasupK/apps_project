@@ -118,6 +118,7 @@ python3 agents/evaluation_agent.py --csv-demo --output output/evaluation_report.
 
 ```bash
 python3 -m unittest tests/test_phase3_evaluation.py
+python3 -m unittest tests/test_phase3_contract.py
 ```
 
 ## 샘플 리포트
