@@ -145,9 +145,17 @@ class Phase3EvaluationTests(unittest.TestCase):
 
     def test_evaluate_fastener_candidates_from_csv(self):
         batch = evaluate_fastener_candidates_from_csv()
-        self.assertEqual(batch["candidate_count"], 1)
-        self.assertEqual(batch["items"][0]["candidate_material"]["candidate_id"], "WEB-005")
-        self.assertEqual(batch["items"][0]["decision_context"]["decision"], "reject")
+        self.assertEqual(batch["candidate_count"], 4)
+        self.assertEqual(batch["next_action"], "approval_pending")
+        self.assertEqual(batch["top_candidate_id"], "WEB-006")
+        decisions = {
+            item["candidate_material"]["candidate_id"]: item["decision_context"]["decision"]
+            for item in batch["items"]
+        }
+        self.assertEqual(decisions["WEB-006"], "recommend")
+        self.assertEqual(decisions["WEB-007"], "conditional_approve")
+        self.assertEqual(decisions["WEB-008"], "review_required")
+        self.assertEqual(decisions["WEB-005"], "reject")
 
 
 if __name__ == "__main__":

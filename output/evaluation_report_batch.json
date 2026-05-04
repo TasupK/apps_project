@@ -1,17 +1,224 @@
 {
-  "batch_report_id": "BER-20260504-154352",
-  "generated_at": "2026-05-04T15:43:52+09:00",
+  "batch_report_id": "BER-20260504-160749",
+  "generated_at": "2026-05-04T16:07:49+09:00",
   "mode": "urgent",
-  "candidate_count": 1,
+  "candidate_count": 4,
   "decision_counts": {
+    "recommend": 1,
+    "conditional_approve": 1,
+    "review_required": 1,
     "reject": 1
   },
-  "top_candidate_id": "WEB-005",
-  "next_action": "no_viable_candidate",
+  "top_candidate_id": "WEB-006",
+  "next_action": "approval_pending",
   "items": [
     {
-      "report_id": "ER-20260504-154352",
-      "generated_at": "2026-05-04T15:43:52+09:00",
+      "report_id": "ER-20260504-160749",
+      "generated_at": "2026-05-04T16:07:49+09:00",
+      "mode": "urgent",
+      "target_material": {
+        "material_id": "MAT-3001",
+        "description": "MAT-3001",
+        "spec": {
+          "diameter": "M10",
+          "pitch": "1.5",
+          "length_mm": 50,
+          "thread_system": "Metric",
+          "material": "SUS304"
+        }
+      },
+      "candidate_material": {
+        "candidate_id": "WEB-006",
+        "vendor_name": "MISUMI Korea",
+        "source_url": "https://example.com/misumi/m10-1-5x50-sus304",
+        "source_type": "official_distributor",
+        "price_krw": 220,
+        "lead_time_days": 1,
+        "moq": null,
+        "spec": {
+          "diameter": "M10",
+          "pitch": "1.5",
+          "length_mm": 50,
+          "thread_system": "Metric",
+          "material": "SUS304"
+        }
+      },
+      "spec_analysis": {
+        "critical_spec_check": {
+          "diameter_match": true,
+          "pitch_match": true,
+          "thread_system_match": true,
+          "length_match": true,
+          "critical_mismatch": false
+        },
+        "highlighted_differences": []
+      },
+      "scores": {
+        "compatibility_score": 100,
+        "source_trust_score": 90,
+        "lead_time_score": 100,
+        "price_score": 82,
+        "moq_score": 70,
+        "final_score": 96
+      },
+      "source_trust_breakdown": {
+        "official_distributor": true,
+        "datasheet_available": true,
+        "stock_visible": true,
+        "price_visible": true,
+        "leadtime_visible": true
+      },
+      "decision_context": {
+        "decision": "recommend",
+        "risk_level": "Low",
+        "recommendation_reason": "Material is identical.",
+        "approval_conditions": [],
+        "rejection_reason": null,
+        "review_required": false
+      }
+    },
+    {
+      "report_id": "ER-20260504-160749",
+      "generated_at": "2026-05-04T16:07:49+09:00",
+      "mode": "urgent",
+      "target_material": {
+        "material_id": "MAT-3001",
+        "description": "MAT-3001",
+        "spec": {
+          "diameter": "M10",
+          "pitch": "1.5",
+          "length_mm": 50,
+          "thread_system": "Metric",
+          "material": "SUS304"
+        }
+      },
+      "candidate_material": {
+        "candidate_id": "WEB-007",
+        "vendor_name": "Daara Precision",
+        "source_url": "https://example.com/daara/m10-1-5x50-sus316",
+        "source_type": "industrial_marketplace",
+        "price_krw": 260,
+        "lead_time_days": 2,
+        "moq": null,
+        "spec": {
+          "diameter": "M10",
+          "pitch": "1.5",
+          "length_mm": 50,
+          "thread_system": "Metric",
+          "material": "SUS316"
+        }
+      },
+      "spec_analysis": {
+        "critical_spec_check": {
+          "diameter_match": true,
+          "pitch_match": true,
+          "thread_system_match": true,
+          "length_match": true,
+          "critical_mismatch": false
+        },
+        "highlighted_differences": [
+          {
+            "spec": "material",
+            "original": "SUS304",
+            "candidate": "SUS316",
+            "impact": "Material difference may affect corrosion, strength, or cost."
+          }
+        ]
+      },
+      "scores": {
+        "compatibility_score": 88,
+        "source_trust_score": 78,
+        "lead_time_score": 85,
+        "price_score": 69,
+        "moq_score": 70,
+        "final_score": 84
+      },
+      "source_trust_breakdown": {
+        "official_distributor": false,
+        "datasheet_available": true,
+        "stock_visible": true,
+        "price_visible": true,
+        "leadtime_visible": true
+      },
+      "decision_context": {
+        "decision": "conditional_approve",
+        "risk_level": "Medium",
+        "recommendation_reason": "Material is upgraded and may affect cost.",
+        "approval_conditions": [
+          "Confirm material substitution impact on cost and corrosion requirements."
+        ],
+        "rejection_reason": null,
+        "review_required": false
+      }
+    },
+    {
+      "report_id": "ER-20260504-160749",
+      "generated_at": "2026-05-04T16:07:49+09:00",
+      "mode": "urgent",
+      "target_material": {
+        "material_id": "MAT-3001",
+        "description": "MAT-3001",
+        "spec": {
+          "diameter": "M10",
+          "pitch": "1.5",
+          "length_mm": 50,
+          "thread_system": "Metric",
+          "material": "SUS304"
+        }
+      },
+      "candidate_material": {
+        "candidate_id": "WEB-008",
+        "vendor_name": "Open Market Seller",
+        "source_url": "https://example.com/market/m10x50-sus304",
+        "source_type": "marketplace",
+        "price_krw": 180,
+        "lead_time_days": 1,
+        "moq": null,
+        "spec": {
+          "diameter": "M10",
+          "pitch": "1.5",
+          "length_mm": 50,
+          "thread_system": "Metric",
+          "material": "SUS304"
+        }
+      },
+      "spec_analysis": {
+        "critical_spec_check": {
+          "diameter_match": true,
+          "pitch_match": true,
+          "thread_system_match": true,
+          "length_match": true,
+          "critical_mismatch": false
+        },
+        "highlighted_differences": []
+      },
+      "scores": {
+        "compatibility_score": 100,
+        "source_trust_score": 30,
+        "lead_time_score": 100,
+        "price_score": 100,
+        "moq_score": 70,
+        "final_score": 95
+      },
+      "source_trust_breakdown": {
+        "official_distributor": false,
+        "datasheet_available": true,
+        "stock_visible": false,
+        "price_visible": true,
+        "leadtime_visible": false
+      },
+      "decision_context": {
+        "decision": "review_required",
+        "risk_level": "High",
+        "recommendation_reason": "Specs are close, but source trust is too low for automatic recommendation.",
+        "approval_conditions": [],
+        "rejection_reason": null,
+        "review_required": true
+      }
+    },
+    {
+      "report_id": "ER-20260504-160749",
+      "generated_at": "2026-05-04T16:07:49+09:00",
       "mode": "urgent",
       "target_material": {
         "material_id": "MAT-3001",
@@ -67,9 +274,9 @@
         "compatibility_score": 0,
         "source_trust_score": 90,
         "lead_time_score": 85,
-        "price_score": 100,
+        "price_score": 90,
         "moq_score": 70,
-        "final_score": 44
+        "final_score": 42
       },
       "source_trust_breakdown": {
         "official_distributor": true,

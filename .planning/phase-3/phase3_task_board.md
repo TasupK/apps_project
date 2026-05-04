@@ -20,8 +20,8 @@
 | Done | P0 | Phase 3 -> Phase 4 공용 계약 정의 | `.planning/shared/contracts/phase3_to_phase4_contract.md` |
 | Done | P0 | 공용 계약 검증 테스트 추가 | `tests/test_phase3_contract.py` |
 | Done | P0 | Fastener spec parser 고도화 | `tools/spec_normalizer.py` |
-| Todo | P0 | 후보 mock 데이터 3~5개로 확장 | `vendor_sourcing.csv`, `material_master.csv` |
-| Todo | P0 | Recommend / Conditional / Review / Reject 시나리오 테스트 확장 | `tests/test_phase3_evaluation.py` |
+| Done | P0 | 후보 mock 데이터 3~5개로 확장 | `vendor_sourcing.csv`, `material_master.csv` |
+| Done | P0 | Recommend / Conditional / Review / Reject 시나리오 테스트 확장 | `tests/test_phase3_evaluation.py` |
 | Todo | P1 | 리포트 메시지 한국어화 | `agents/evaluation_agent.py` |
 | Todo | P1 | 출처 신뢰도 계산 근거 설명 강화 | `decision_context`, `source_trust_breakdown` |
 | Todo | P1 | 재질 matrix 보강 후보 정리 | `PHASE_3_MATERIAL_DECISION_MATRIX.md` |

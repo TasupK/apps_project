@@ -97,9 +97,16 @@ python3 agents/evaluation_agent.py --csv-demo --output output/evaluation_report.
 
 ## 현재 CSV 데모 결과
 
-현재 mock 데이터에서는 `MAT-3001` 원본 자재와 `WEB-005` 후보를 비교한다. 직경, 피치, 규격 체계는 일치하지만 길이 `50mm -> 55mm`가 불일치하므로 `decision = reject`가 정상 결과다.
+현재 mock 데이터에서는 `MAT-3001` 원본 자재를 기준으로 4개 후보를 비교한다.
 
-현재 CSV에는 fastener 후보가 1개뿐이라 batch 리포트도 후보 1개만 포함한다. Phase 2가 후보를 여러 개 넘기면 동일한 구조에서 자동으로 정렬된다.
+| Candidate | Expected Decision | Reason |
+|---|---|---|
+| `WEB-006` | `recommend` | 직경, 피치, 길이, 재질이 모두 동일 |
+| `WEB-007` | `conditional_approve` | 길이는 동일하지만 `SUS304 -> SUS316` 재질 상향 |
+| `WEB-008` | `review_required` | 규격은 동일하지만 marketplace 출처 근거가 약함 |
+| `WEB-005` | `reject` | 길이 `50mm -> 55mm` 불일치 |
+
+Batch 리포트의 `next_action`은 `approval_pending`이며, `top_candidate_id`는 `WEB-006`이다.
 
 ## 완료 기준
 

@@ -26,9 +26,9 @@ class Phase3ContractTests(unittest.TestCase):
 
     def test_next_action_must_match_item_decisions(self):
         report = json.loads(SAMPLE_BATCH_REPORT.read_text(encoding="utf-8"))
-        report["next_action"] = "approval_pending"
+        report["next_action"] = "no_viable_candidate"
         errors = validate_batch_report(report)
-        self.assertIn("batch.next_action must be no_viable_candidate", errors)
+        self.assertIn("batch.next_action must be approval_pending", errors)
 
 
 if __name__ == "__main__":
