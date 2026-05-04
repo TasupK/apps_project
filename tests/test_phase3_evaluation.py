@@ -113,6 +113,32 @@ class Phase3EvaluationTests(unittest.TestCase):
         report = evaluate_fastener_candidate(TARGET, candidate)
         self.assertEqual(report["decision_context"]["decision"], "reject")
 
+    def test_conditional_approve_on_strength_upgrade(self):
+        target = {
+            "material_id": "BT-H-M10-50",
+            "description": "Hex bolt",
+            "spec_text": "Hex head bolt M10 thread pitch 1.5 length 50mm. Steel 8.8.",
+        }
+        candidate = build_candidate("Hex head bolt M10 thread pitch 1.5 length 50mm. Steel 10.9.")
+        report = evaluate_fastener_candidate(target, candidate)
+        self.assertEqual(report["decision_context"]["decision"], "conditional_approve")
+        self.assertIn("8.8에서 10.9", report["decision_context"]["recommendation_reason"])
+
+    def test_reject_on_strength_downgrade(self):
+        target = {
+            "material_id": "BT-H-M10-50",
+            "description": "Hex bolt",
+            "spec_text": "Hex head bolt M10 thread pitch 1.5 length 50mm. Steel 10.9.",
+        }
+        candidate = build_candidate("Hex head bolt M10 thread pitch 1.5 length 50mm. Steel 8.8.")
+        report = evaluate_fastener_candidate(target, candidate)
+        self.assertEqual(report["decision_context"]["decision"], "reject")
+
+    def test_review_required_on_missing_material_information(self):
+        candidate = build_candidate("Hex head bolt M10 thread pitch 1.5 length 50mm.")
+        report = evaluate_fastener_candidate(TARGET, candidate)
+        self.assertEqual(report["decision_context"]["decision"], "review_required")
+
     def test_load_fastener_inputs_from_csv(self):
         target, candidate = load_fastener_inputs_from_csv()
         self.assertEqual(target["material_id"], "MAT-3001")

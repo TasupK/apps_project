@@ -57,6 +57,32 @@
 | `SUS304` | `8.8` | No | N/A | `reject` | `High` | 그룹 불일치 |
 | `Unknown` | `Unknown` | No | N/A | `review_required` | `High` | 재질 정보 부족 |
 
+## MVP Rules Reflected in Code
+
+현재 `agents/evaluation_agent.py`는 아래 명시 룰을 먼저 적용한다. 이 표에 없는 조합은 `material_group`과 `material_rank` 기준의 보수적 fallback으로 처리한다.
+
+| Original | Candidate | Decision | Risk | Notes |
+|---|---|---|---|---|
+| `SUS304` | `SUS304` | `recommend` | `Low` | 동일 재질 |
+| `SUS304` | `SUS316` | `conditional_approve` | `Medium` | 상향 대체, 비용/현장 조건 확인 |
+| `SUS316` | `SUS304` | `review_required` | `Medium` | 하향 대체, 내식성 검토 |
+| `8.8` | `8.8` | `recommend` | `Low` | 동일 강도 등급 |
+| `8.8` | `10.9` | `conditional_approve` | `Medium` | 상향 대체, 체결 조건 확인 |
+| `10.9` | `8.8` | `reject` | `High` | 강도 하향 |
+| `SUS304` | `8.8` | `reject` | `High` | 재질 계열 불일치 |
+
+## Phase 1 Confirmation Checklist
+
+Phase 1이 실제 재고 DB를 확인한 뒤 아래 질문을 확정해야 한다.
+
+| Question | Why It Matters |
+|---|---|
+| 실제 fastener 재질이 `SUS304`, `SUS316`, `8.8`, `10.9` 외에 더 있는가? | matrix 범위 확장 필요 |
+| `SUS304 -> SUS316`을 항상 상향 대체로 볼 수 있는가? | 비용/현장 조건 확인 문구 조정 |
+| `SUS316 -> SUS304`를 어떤 조건에서 허용할 수 있는가? | `review_required` 유지 또는 `reject` 변경 |
+| 표면처리, 도금, 열처리 정보가 재질 필수 스펙에 포함되는가? | parser와 critical spec 확장 필요 |
+| 회사 구매 정책상 특정 재질 하향 대체가 금지되어 있는가? | material rule을 `reject`로 고정 필요 |
+
 ## Output Usage
 
 Phase 3는 아래 필드를 계산할 때 이 매트릭스를 참조한다.
@@ -73,5 +99,7 @@ Phase 1에서 실제 자재 DB 분석이 끝나면 아래 두 항목을 업데�
 
 - `Sample Material Master for MVP`
 - `Sample Decision Matrix`
+- `MVP Rules Reflected in Code`
+- `Phase 1 Confirmation Checklist`
 
 이후에도 문서 형식과 판정 로직 구조는 유지한다.

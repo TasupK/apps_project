@@ -35,6 +35,28 @@ MATERIAL_GROUPS = {
     "STEEL": ("unknown", 0),
 }
 
+MATERIAL_DECISION_RULES = {
+    ("SUS304", "SUS304"): ("recommend", "Low", "원본 자재와 후보 자재의 재질이 동일합니다."),
+    ("SUS304", "SUS316"): (
+        "conditional_approve",
+        "Medium",
+        "재질이 SUS304에서 SUS316으로 상향되어 사용 가능성은 있으나 비용과 현장 조건 확인이 필요합니다.",
+    ),
+    ("SUS316", "SUS304"): (
+        "review_required",
+        "Medium",
+        "재질이 SUS316에서 SUS304로 하향되어 내식성 요구조건 검토가 필요합니다.",
+    ),
+    ("8.8", "8.8"): ("recommend", "Low", "원본 자재와 후보 자재의 강도 등급이 동일합니다."),
+    ("8.8", "10.9"): (
+        "conditional_approve",
+        "Medium",
+        "강도 등급이 8.8에서 10.9로 상향되어 사용 가능성은 있으나 체결 조건 확인이 필요합니다.",
+    ),
+    ("10.9", "8.8"): ("reject", "High", "강도 등급이 10.9에서 8.8로 낮아져 대체 사용할 수 없습니다."),
+    ("SUS304", "8.8"): ("reject", "High", "스테인리스 계열과 탄소강 강도 등급 계열이 달라 대체 사용할 수 없습니다."),
+}
+
 SOURCE_TYPE_BREAKDOWN = {
     "official_distributor": {"official_distributor": True, "datasheet_bonus": 30, "label": "공식 대리점"},
     "manufacturer_page": {"official_distributor": False, "datasheet_bonus": 25, "label": "제조사 공식 페이지"},
@@ -75,8 +97,12 @@ def _material_decision(original: str | None, candidate: str | None) -> tuple[str
     if not original or not candidate:
         return "review_required", "High", "재질 정보가 부족하여 구매 담당자 검토가 필요합니다."
 
+    explicit_rule = MATERIAL_DECISION_RULES.get((original, candidate))
+    if explicit_rule:
+        return explicit_rule
+
     if original == candidate:
-        return "recommend", "Low", "원본 자재와 후보 자재의 재질이 동일합니다."
+        return "recommend", "Low", "원본 자재와 후보 자재의 재질 또는 강도 등급이 동일합니다."
 
     original_group, original_rank = MATERIAL_GROUPS.get(original, ("unknown", 0))
     candidate_group, candidate_rank = MATERIAL_GROUPS.get(candidate, ("unknown", 0))

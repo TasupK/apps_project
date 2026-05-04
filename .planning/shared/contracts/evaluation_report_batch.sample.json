@@ -1,6 +1,6 @@
 {
-  "batch_report_id": "BER-20260504-161209",
-  "generated_at": "2026-05-04T16:12:09+09:00",
+  "batch_report_id": "BER-20260504-161712",
+  "generated_at": "2026-05-04T16:17:12+09:00",
   "mode": "urgent",
   "candidate_count": 4,
   "decision_counts": {
@@ -13,8 +13,8 @@
   "next_action": "approval_pending",
   "items": [
     {
-      "report_id": "ER-20260504-161209",
-      "generated_at": "2026-05-04T16:12:09+09:00",
+      "report_id": "ER-20260504-161712",
+      "generated_at": "2026-05-04T16:17:12+09:00",
       "mode": "urgent",
       "target_material": {
         "material_id": "MAT-3001",
@@ -90,8 +90,8 @@
       }
     },
     {
-      "report_id": "ER-20260504-161209",
-      "generated_at": "2026-05-04T16:12:09+09:00",
+      "report_id": "ER-20260504-161712",
+      "generated_at": "2026-05-04T16:17:12+09:00",
       "mode": "urgent",
       "target_material": {
         "material_id": "MAT-3001",
@@ -168,7 +168,7 @@
       "decision_context": {
         "decision": "conditional_approve",
         "risk_level": "Medium",
-        "recommendation_reason": "재질이 상향되어 사용 가능성은 있으나 비용과 현장 조건 확인이 필요합니다.",
+        "recommendation_reason": "재질이 SUS304에서 SUS316으로 상향되어 사용 가능성은 있으나 비용과 현장 조건 확인이 필요합니다.",
         "approval_conditions": [
           "재질 대체에 따른 비용 증가와 내식성 요구조건 충족 여부를 확인해야 합니다."
         ],
@@ -177,8 +177,8 @@
       }
     },
     {
-      "report_id": "ER-20260504-161209",
-      "generated_at": "2026-05-04T16:12:09+09:00",
+      "report_id": "ER-20260504-161712",
+      "generated_at": "2026-05-04T16:17:12+09:00",
       "mode": "urgent",
       "target_material": {
         "material_id": "MAT-3001",
@@ -255,8 +255,8 @@
       }
     },
     {
-      "report_id": "ER-20260504-161209",
-      "generated_at": "2026-05-04T16:12:09+09:00",
+      "report_id": "ER-20260504-161712",
+      "generated_at": "2026-05-04T16:17:12+09:00",
       "mode": "urgent",
       "target_material": {
         "material_id": "MAT-3001",
