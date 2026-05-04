@@ -1,0 +1,91 @@
+{
+  "batch_report_id": "BER-20260504-154352",
+  "generated_at": "2026-05-04T15:43:52+09:00",
+  "mode": "urgent",
+  "candidate_count": 1,
+  "decision_counts": {
+    "reject": 1
+  },
+  "top_candidate_id": "WEB-005",
+  "next_action": "no_viable_candidate",
+  "items": [
+    {
+      "report_id": "ER-20260504-154352",
+      "generated_at": "2026-05-04T15:43:52+09:00",
+      "mode": "urgent",
+      "target_material": {
+        "material_id": "MAT-3001",
+        "description": "MAT-3001",
+        "spec": {
+          "diameter": "M10",
+          "pitch": "1.5",
+          "length_mm": 50,
+          "thread_system": "Metric",
+          "material": "SUS304"
+        }
+      },
+      "candidate_material": {
+        "candidate_id": "WEB-005",
+        "vendor_name": "Fastener Tech",
+        "source_url": "https://example.com/fastener-tech/m10x55-sus316",
+        "source_type": "official_distributor",
+        "price_krw": 200,
+        "lead_time_days": 2,
+        "moq": null,
+        "spec": {
+          "diameter": "M10",
+          "pitch": "1.5",
+          "length_mm": 55,
+          "thread_system": "Metric",
+          "material": "SUS316"
+        }
+      },
+      "spec_analysis": {
+        "critical_spec_check": {
+          "diameter_match": true,
+          "pitch_match": true,
+          "thread_system_match": true,
+          "length_match": false,
+          "critical_mismatch": true
+        },
+        "highlighted_differences": [
+          {
+            "spec": "length_mm",
+            "original": 50,
+            "candidate": 55,
+            "impact": "Length mismatch creates assembly risk."
+          },
+          {
+            "spec": "material",
+            "original": "SUS304",
+            "candidate": "SUS316",
+            "impact": "Material difference may affect corrosion, strength, or cost."
+          }
+        ]
+      },
+      "scores": {
+        "compatibility_score": 0,
+        "source_trust_score": 90,
+        "lead_time_score": 85,
+        "price_score": 100,
+        "moq_score": 70,
+        "final_score": 44
+      },
+      "source_trust_breakdown": {
+        "official_distributor": true,
+        "datasheet_available": true,
+        "stock_visible": true,
+        "price_visible": true,
+        "leadtime_visible": true
+      },
+      "decision_context": {
+        "decision": "reject",
+        "risk_level": "High",
+        "recommendation_reason": "Not recommended for substitution.",
+        "approval_conditions": [],
+        "rejection_reason": "Critical spec mismatch.",
+        "review_required": false
+      }
+    }
+  ]
+}

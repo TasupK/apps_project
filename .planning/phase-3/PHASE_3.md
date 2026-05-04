@@ -10,6 +10,7 @@ Phase 3는 AI 추천의 안전성을 책임진다. 웹 검색 결과를 그대�
 
 포맷 기준 문서: [Phase 3 Format Contract](PHASE_3_FORMAT_CONTRACT.md)
 재질 판정 기준 문서: [Phase 3 Material Decision Matrix](PHASE_3_MATERIAL_DECISION_MATRIX.md)
+Phase 4 전달 계약: [Phase 3 to Phase 4 Contract](../shared/contracts/phase3_to_phase4_contract.md)
 
 ## 작업 범위
 
@@ -22,6 +23,7 @@ Phase 3는 AI 추천의 안전성을 책임진다. 웹 검색 결과를 그대�
 - 가격/납기/신뢰도 기반 최종 점수 계산
 - 리스크 메모 생성
 - `evaluation_report` 생성
+- Phase 4 전달용 `evaluation_report_batch` 생성
 
 ## MVP 우선 구현 기능
 
@@ -73,6 +75,8 @@ python3 agents/evaluation_agent.py --csv-demo --output output/evaluation_report.
 python3 agents/evaluation_agent.py --batch --output output/evaluation_report_batch.json
 ```
 
+Phase 4로 넘기는 공식 산출물은 단일 후보 리포트가 아니라 batch 리포트다. 상세 필드와 상태값은 공용 계약 문서인 [Phase 3 to Phase 4 Contract](../shared/contracts/phase3_to_phase4_contract.md)를 따른다.
+
 샘플 리포트를 콘솔에도 같이 보고 싶으면 아래 명령을 사용한다.
 
 ```bash
@@ -123,7 +127,8 @@ python3 -m unittest tests/test_phase3_evaluation.py
 
 ## 다음 Phase로 넘길 것
 
-- `evaluation_report`
-- 추천 후보 Top 3
-- 조건부 승인 사유
-- 자동 제외 후보와 제외 근거
+- `output/evaluation_report_batch.json`
+- `next_action`
+- `top_candidate_id`
+- 후보별 `decision_context`
+- 후보별 `scores`, `highlighted_differences`
