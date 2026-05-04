@@ -73,24 +73,24 @@ def _bool(raw: str | bool | None) -> bool:
 
 def _material_decision(original: str | None, candidate: str | None) -> tuple[str, str, str]:
     if not original or not candidate:
-        return "review_required", "High", "Material information is incomplete."
+        return "review_required", "High", "재질 정보가 부족하여 구매 담당자 검토가 필요합니다."
 
     if original == candidate:
-        return "recommend", "Low", "Material is identical."
+        return "recommend", "Low", "원본 자재와 후보 자재의 재질이 동일합니다."
 
     original_group, original_rank = MATERIAL_GROUPS.get(original, ("unknown", 0))
     candidate_group, candidate_rank = MATERIAL_GROUPS.get(candidate, ("unknown", 0))
 
     if original_group != candidate_group:
-        return "reject", "High", "Material group mismatch."
+        return "reject", "High", "재질 계열이 달라 대체 사용이 어렵습니다."
 
     if candidate_rank > original_rank:
-        return "conditional_approve", "Medium", "Material is upgraded and may affect cost."
+        return "conditional_approve", "Medium", "재질이 상향되어 사용 가능성은 있으나 비용과 현장 조건 확인이 필요합니다."
 
     if original_group == "carbon_steel_strength" and candidate_rank < original_rank:
-        return "reject", "High", "Strength grade is downgraded."
+        return "reject", "High", "강도 등급이 낮아져 체결 성능 리스크가 큽니다."
 
-    return "review_required", "Medium", "Material is downgraded and needs buyer review."
+    return "review_required", "Medium", "재질이 하향되어 구매 담당자와 현장 검토가 필요합니다."
 
 
 def _critical_spec_check(original: FastenerSpec, candidate: FastenerSpec) -> dict:
@@ -112,11 +112,11 @@ def _critical_spec_check(original: FastenerSpec, candidate: FastenerSpec) -> dic
 def _highlight_differences(original: FastenerSpec, candidate: FastenerSpec) -> list[dict]:
     differences = []
     for field_name, impact in {
-        "diameter": "Diameter mismatch prevents interchangeability.",
-        "pitch": "Thread pitch mismatch prevents proper fastening.",
-        "thread_system": "Thread system mismatch prevents compatibility.",
-        "length_mm": "Length mismatch creates assembly risk.",
-        "material": "Material difference may affect corrosion, strength, or cost.",
+        "diameter": "직경이 달라 체결 호환이 어렵습니다.",
+        "pitch": "피치가 달라 나사산 체결이 불가능할 수 있습니다.",
+        "thread_system": "규격 체계가 달라 호환이 어렵습니다.",
+        "length_mm": "길이가 달라 조립 간섭 또는 체결 깊이 문제가 발생할 수 있습니다.",
+        "material": "재질 차이로 내식성, 강도, 비용에 영향이 있을 수 있습니다.",
     }.items():
         original_value = getattr(original, field_name)
         candidate_value = getattr(candidate, field_name)
@@ -209,9 +209,9 @@ def _decision_context(
         return {
             "decision": "reject",
             "risk_level": "High",
-            "recommendation_reason": "Not recommended for substitution.",
+            "recommendation_reason": "필수 규격이 일치하지 않아 대체재로 추천하지 않습니다.",
             "approval_conditions": [],
-            "rejection_reason": "Critical spec mismatch.",
+            "rejection_reason": "직경, 피치, 규격 체계, 길이 중 하나 이상의 필수 스펙이 불일치합니다.",
             "review_required": False,
         }
 
@@ -219,7 +219,7 @@ def _decision_context(
         return {
             "decision": "review_required",
             "risk_level": "High",
-            "recommendation_reason": "Specs are close, but source trust is too low for automatic recommendation.",
+            "recommendation_reason": "규격은 유사하지만 출처 신뢰도가 낮아 자동 추천할 수 없습니다.",
             "approval_conditions": [],
             "rejection_reason": None,
             "review_required": True,
@@ -227,7 +227,7 @@ def _decision_context(
 
     approval_conditions = []
     if decision == "conditional_approve" and any(item["spec"] == "material" for item in differences):
-        approval_conditions.append("Confirm material substitution impact on cost and corrosion requirements.")
+        approval_conditions.append("재질 대체에 따른 비용 증가와 내식성 요구조건 충족 여부를 확인해야 합니다.")
 
     return {
         "decision": decision,

@@ -1,6 +1,6 @@
 {
-  "batch_report_id": "BER-20260504-160749",
-  "generated_at": "2026-05-04T16:07:49+09:00",
+  "batch_report_id": "BER-20260504-160942",
+  "generated_at": "2026-05-04T16:09:42+09:00",
   "mode": "urgent",
   "candidate_count": 4,
   "decision_counts": {
@@ -13,8 +13,8 @@
   "next_action": "approval_pending",
   "items": [
     {
-      "report_id": "ER-20260504-160749",
-      "generated_at": "2026-05-04T16:07:49+09:00",
+      "report_id": "ER-20260504-160942",
+      "generated_at": "2026-05-04T16:09:42+09:00",
       "mode": "urgent",
       "target_material": {
         "material_id": "MAT-3001",
@@ -71,15 +71,15 @@
       "decision_context": {
         "decision": "recommend",
         "risk_level": "Low",
-        "recommendation_reason": "Material is identical.",
+        "recommendation_reason": "원본 자재와 후보 자재의 재질이 동일합니다.",
         "approval_conditions": [],
         "rejection_reason": null,
         "review_required": false
       }
     },
     {
-      "report_id": "ER-20260504-160749",
-      "generated_at": "2026-05-04T16:07:49+09:00",
+      "report_id": "ER-20260504-160942",
+      "generated_at": "2026-05-04T16:09:42+09:00",
       "mode": "urgent",
       "target_material": {
         "material_id": "MAT-3001",
@@ -121,7 +121,7 @@
             "spec": "material",
             "original": "SUS304",
             "candidate": "SUS316",
-            "impact": "Material difference may affect corrosion, strength, or cost."
+            "impact": "재질 차이로 내식성, 강도, 비용에 영향이 있을 수 있습니다."
           }
         ]
       },
@@ -143,17 +143,17 @@
       "decision_context": {
         "decision": "conditional_approve",
         "risk_level": "Medium",
-        "recommendation_reason": "Material is upgraded and may affect cost.",
+        "recommendation_reason": "재질이 상향되어 사용 가능성은 있으나 비용과 현장 조건 확인이 필요합니다.",
         "approval_conditions": [
-          "Confirm material substitution impact on cost and corrosion requirements."
+          "재질 대체에 따른 비용 증가와 내식성 요구조건 충족 여부를 확인해야 합니다."
         ],
         "rejection_reason": null,
         "review_required": false
       }
     },
     {
-      "report_id": "ER-20260504-160749",
-      "generated_at": "2026-05-04T16:07:49+09:00",
+      "report_id": "ER-20260504-160942",
+      "generated_at": "2026-05-04T16:09:42+09:00",
       "mode": "urgent",
       "target_material": {
         "material_id": "MAT-3001",
@@ -210,15 +210,15 @@
       "decision_context": {
         "decision": "review_required",
         "risk_level": "High",
-        "recommendation_reason": "Specs are close, but source trust is too low for automatic recommendation.",
+        "recommendation_reason": "규격은 유사하지만 출처 신뢰도가 낮아 자동 추천할 수 없습니다.",
         "approval_conditions": [],
         "rejection_reason": null,
         "review_required": true
       }
     },
     {
-      "report_id": "ER-20260504-160749",
-      "generated_at": "2026-05-04T16:07:49+09:00",
+      "report_id": "ER-20260504-160942",
+      "generated_at": "2026-05-04T16:09:42+09:00",
       "mode": "urgent",
       "target_material": {
         "material_id": "MAT-3001",
@@ -260,13 +260,13 @@
             "spec": "length_mm",
             "original": 50,
             "candidate": 55,
-            "impact": "Length mismatch creates assembly risk."
+            "impact": "길이가 달라 조립 간섭 또는 체결 깊이 문제가 발생할 수 있습니다."
           },
           {
             "spec": "material",
             "original": "SUS304",
             "candidate": "SUS316",
-            "impact": "Material difference may affect corrosion, strength, or cost."
+            "impact": "재질 차이로 내식성, 강도, 비용에 영향이 있을 수 있습니다."
           }
         ]
       },
@@ -288,9 +288,9 @@
       "decision_context": {
         "decision": "reject",
         "risk_level": "High",
-        "recommendation_reason": "Not recommended for substitution.",
+        "recommendation_reason": "필수 규격이 일치하지 않아 대체재로 추천하지 않습니다.",
         "approval_conditions": [],
-        "rejection_reason": "Critical spec mismatch.",
+        "rejection_reason": "직경, 피치, 규격 체계, 길이 중 하나 이상의 필수 스펙이 불일치합니다.",
         "review_required": false
       }
     }
