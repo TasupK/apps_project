@@ -8,6 +8,9 @@
 
 Phase 3는 AI 추천의 안전성을 책임진다. 웹 검색 결과를 그대로 믿지 않고, 필수 스펙 일치 여부와 출처 신뢰도를 함께 평가해 추천, 조건부 승인, 검토 필요, 제외 상태를 구분한다.
 
+포맷 기준 문서: [Phase 3 Format Contract](PHASE_3_FORMAT_CONTRACT.md)
+재질 판정 기준 문서: [Phase 3 Material Decision Matrix](PHASE_3_MATERIAL_DECISION_MATRIX.md)
+
 ## 작업 범위
 
 - 원본 자재 스펙 파싱
@@ -19,6 +22,16 @@ Phase 3는 AI 추천의 안전성을 책임진다. 웹 검색 결과를 그대�
 - 가격/납기/신뢰도 기반 최종 점수 계산
 - 리스크 메모 생성
 - `evaluation_report` 생성
+
+## MVP 우선 구현 기능
+
+- 규격 파싱
+- 필수 스펙 검증
+- 스펙 차이 하이라이트
+- 위험등급 분류
+- 추천/반려 사유 생성
+- 출처 신뢰도 breakdown
+- 긴급 모드 가중치 조절
 
 ## 점수 기준 초안
 
@@ -34,15 +47,15 @@ Phase 3는 AI 추천의 안전성을 책임진다. 웹 검색 결과를 그대�
 
 ```json
 {
-  "candidate_id": "WEB-001",
-  "material_id": "MAT-1002",
-  "vendor_name": "Seoul Bearings Co.",
-  "tech_compatibility_percent": 94,
-  "source_reliability_score": 91,
-  "final_score": 92,
-  "validation_status": "Conditional approval",
-  "risk_note": "ZZ shield to 2RS rubber seal change needs field confirmation for heat/friction conditions.",
-  "recommendation_rank": 1
+  "report_id": "ER-20260504-001",
+  "generated_at": "2026-05-04T14:30:00+09:00",
+  "mode": "urgent",
+  "target_material": {},
+  "candidate_material": {},
+  "spec_analysis": {},
+  "scores": {},
+  "source_trust_breakdown": {},
+  "decision_context": {}
 }
 ```
 
@@ -60,6 +73,11 @@ Phase 3는 AI 추천의 안전성을 책임진다. 웹 검색 결과를 그대�
 - 공식 출처 후보가 마켓플레이스 후보보다 높은 신뢰도를 받는가?
 - 가격이 낮아도 납기가 너무 길면 최종 점수가 낮아지는가?
 - 리스크 메모가 원본/후보 스펙 차이를 근거로 작성되는가?
+
+## 샘플 리포트
+
+- [Conditional Approve Sample](evaluation_report.conditional_approve.sample.json)
+- [Reject Sample](evaluation_report.reject.sample.json)
 
 ## 다음 Phase로 넘길 것
 

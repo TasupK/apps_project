@@ -1,0 +1,83 @@
+{
+  "report_id": "ER-20260504-002",
+  "generated_at": "2026-05-04T14:35:00+09:00",
+  "mode": "normal",
+  "target_material": {
+    "material_id": "BT-H-M10-50",
+    "description": "Hex bolt",
+    "spec": {
+      "diameter": "M10",
+      "pitch": "1.5",
+      "length_mm": 50,
+      "thread_system": "Metric",
+      "material": "SUS304"
+    }
+  },
+  "candidate_material": {
+    "candidate_id": "CAND-009",
+    "vendor_name": "Generic Fastener Mall",
+    "source_url": "https://example.com/item/999",
+    "source_type": "marketplace",
+    "price_krw": 190,
+    "lead_time_days": 2,
+    "moq": 50,
+    "spec": {
+      "diameter": "M8",
+      "pitch": "1.25",
+      "length_mm": 50,
+      "thread_system": "Metric",
+      "material": "Steel"
+    }
+  },
+  "spec_analysis": {
+    "critical_spec_check": {
+      "diameter_match": false,
+      "pitch_match": false,
+      "thread_system_match": true,
+      "critical_mismatch": true
+    },
+    "highlighted_differences": [
+      {
+        "spec": "diameter",
+        "original": "M10",
+        "candidate": "M8",
+        "impact": "Cannot be substituted because the diameter does not match"
+      },
+      {
+        "spec": "pitch",
+        "original": "1.5",
+        "candidate": "1.25",
+        "impact": "Thread pitch mismatch prevents proper fastening"
+      },
+      {
+        "spec": "material",
+        "original": "SUS304",
+        "candidate": "Steel",
+        "impact": "Material downgrade may reduce corrosion resistance"
+      }
+    ]
+  },
+  "scores": {
+    "compatibility_score": 24,
+    "source_trust_score": 54,
+    "lead_time_score": 82,
+    "price_score": 94,
+    "moq_score": 60,
+    "final_score": 42
+  },
+  "source_trust_breakdown": {
+    "official_distributor": false,
+    "datasheet_available": false,
+    "stock_visible": true,
+    "price_visible": true,
+    "leadtime_visible": true
+  },
+  "decision_context": {
+    "decision": "reject",
+    "risk_level": "High",
+    "recommendation_reason": "Not recommended for substitution.",
+    "approval_conditions": [],
+    "rejection_reason": "Critical spec mismatch in diameter and pitch.",
+    "review_required": false
+  }
+}

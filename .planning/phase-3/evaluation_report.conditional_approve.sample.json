@@ -1,0 +1,73 @@
+{
+  "report_id": "ER-20260504-001",
+  "generated_at": "2026-05-04T14:30:00+09:00",
+  "mode": "urgent",
+  "target_material": {
+    "material_id": "BT-H-M10-50",
+    "description": "Hex bolt",
+    "spec": {
+      "diameter": "M10",
+      "pitch": "1.5",
+      "length_mm": 50,
+      "thread_system": "Metric",
+      "material": "SUS304"
+    }
+  },
+  "candidate_material": {
+    "candidate_id": "CAND-001",
+    "vendor_name": "MISUMI Korea",
+    "source_url": "https://example.com/item/123",
+    "source_type": "official_distributor",
+    "price_krw": 450,
+    "lead_time_days": 1,
+    "moq": 10,
+    "spec": {
+      "diameter": "M10",
+      "pitch": "1.5",
+      "length_mm": 50,
+      "thread_system": "Metric",
+      "material": "SUS316"
+    }
+  },
+  "spec_analysis": {
+    "critical_spec_check": {
+      "diameter_match": true,
+      "pitch_match": true,
+      "thread_system_match": true,
+      "critical_mismatch": false
+    },
+    "highlighted_differences": [
+      {
+        "spec": "material",
+        "original": "SUS304",
+        "candidate": "SUS316",
+        "impact": "Corrosion resistance improves but cost may increase"
+      }
+    ]
+  },
+  "scores": {
+    "compatibility_score": 87,
+    "source_trust_score": 91,
+    "lead_time_score": 95,
+    "price_score": 78,
+    "moq_score": 85,
+    "final_score": 88
+  },
+  "source_trust_breakdown": {
+    "official_distributor": true,
+    "datasheet_available": true,
+    "stock_visible": true,
+    "price_visible": true,
+    "leadtime_visible": true
+  },
+  "decision_context": {
+    "decision": "conditional_approve",
+    "risk_level": "Medium",
+    "recommendation_reason": "Diameter, pitch, thread system, and length all match and the source trust score is high. Material is upgraded from SUS304 to SUS316, so conditional approval is appropriate.",
+    "approval_conditions": [
+      "Confirm acceptable cost increase for SUS316 substitution"
+    ],
+    "rejection_reason": null,
+    "review_required": false
+  }
+}

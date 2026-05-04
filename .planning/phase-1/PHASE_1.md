@@ -30,7 +30,7 @@ Phase 1은 전체 시스템의 입력을 책임진다. 이후 Phase 2~5는 모�
 
 ## 출력 포맷
 
-Phase 1의 공식 출력은 `shortage_event`이며, 필드명과 타입은 `PHASE_1_FORMAT_CONTRACT.md`를 따른다.
+Phase 1의 공식 출력은 `shortage_event`이며, 필드명과 타입은 [Phase 1 Format Contract](PHASE_1_FORMAT_CONTRACT.md)를 따른다.
 
 ```json
 {
@@ -59,7 +59,7 @@ Phase 1의 공식 출력은 `shortage_event`이며, 필드명과 타입은 `PHAS
 - 재고 부족 자재가 1개 이상 정상 감지된다.
 - 부족 수량이 정확히 계산된다.
 - `shortage_event`가 Phase 2에서 바로 사용할 수 있는 형태로 생성된다.
-- `PHASE_1_FORMAT_CONTRACT.md`의 필수 필드가 모두 채워진다.
+- [Phase 1 Format Contract](PHASE_1_FORMAT_CONTRACT.md)의 필수 필드가 모두 채워진다.
 - mock 데이터만으로 단독 실행이 가능하다.
 - 필드명 변경 사항이 생기면 `REQUIREMENTS.md`와 팀원에게 공유된다.
 

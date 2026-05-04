@@ -7,12 +7,14 @@
 
 ## Phase Files
 
-- [Phase 1: Mock Data Layer & Monitor Agent](PHASE_1.md)
-- [Phase 1 Format Contract](PHASE_1_FORMAT_CONTRACT.md)
-- [Phase 2: Web Research Agent & Source Collection](PHASE_2.md)
-- [Phase 3: Trust & Evaluation Agent](PHASE_3.md)
-- [Phase 4: Orchestration & Human-in-the-Loop](PHASE_4.md)
-- [Phase 5: Streamlit UI & Demo](PHASE_5.md)
+- [Phase 1: Mock Data Layer & Monitor Agent](phase-1/PHASE_1.md)
+- [Phase 1 Format Contract](phase-1/PHASE_1_FORMAT_CONTRACT.md)
+- [Phase 2: Web Research Agent & Source Collection](phase-2/PHASE_2.md)
+- [Phase 3: Trust & Evaluation Agent](phase-3/PHASE_3.md)
+- [Phase 3 Format Contract](phase-3/PHASE_3_FORMAT_CONTRACT.md)
+- [Phase 3 Material Decision Matrix](phase-3/PHASE_3_MATERIAL_DECISION_MATRIX.md)
+- [Phase 4: Orchestration & Human-in-the-Loop](phase-4/PHASE_4.md)
+- [Phase 5: Streamlit UI & Demo](phase-5/PHASE_5.md)
 
 ### Phase 1: 뼈대 세우기 — Mock Data Layer & Monitor Agent
 *주차: 1~2주차 | 담당: 팀원 A*

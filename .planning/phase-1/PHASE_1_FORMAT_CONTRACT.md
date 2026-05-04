@@ -143,7 +143,7 @@ Phase 1의 핵심 출력이다. Phase 2~5는 실제 Monitor Agent 없이도 이 
 
 ## Phase 2 Mock Input
 
-Phase 2 담당자는 실제 Monitor Agent가 없어도 `.planning/shortage_event.sample.json` 하나로 검색 로직을 시작할 수 있어야 한다.
+Phase 2 담당자는 실제 Monitor Agent가 없어도 `shortage_event.sample.json` 하나로 검색 로직을 시작할 수 있어야 한다.
 
 ```json
 {
