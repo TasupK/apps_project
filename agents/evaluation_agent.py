@@ -23,6 +23,7 @@ DEFAULT_FASTENER_SHORTAGE_EVENT = PROJECT_ROOT / ".planning" / "phase-3" / "fast
 DEFAULT_MATERIAL_MASTER = PROJECT_ROOT / "material_master.csv"
 DEFAULT_VENDOR_SOURCING = PROJECT_ROOT / "vendor_sourcing.csv"
 DEFAULT_OUTPUT = PROJECT_ROOT / "output" / "evaluation_report.json"
+DEFAULT_BATCH_OUTPUT = PROJECT_ROOT / "output" / "evaluation_report_batch.json"
 
 
 MATERIAL_GROUPS = {
@@ -320,18 +321,15 @@ def _read_csv_rows(path: Path) -> list[dict]:
         return list(csv.DictReader(handle))
 
 
-def load_fastener_inputs_from_csv(
+def _load_fastener_csv_context(
     shortage_event_path: Path = DEFAULT_FASTENER_SHORTAGE_EVENT,
     material_master_path: Path = DEFAULT_MATERIAL_MASTER,
     vendor_sourcing_path: Path = DEFAULT_VENDOR_SOURCING,
-) -> tuple[dict, dict]:
+) -> tuple[dict, dict[str, dict], list[dict]]:
     shortage_event = json.loads(shortage_event_path.read_text(encoding="utf-8"))
     material_rows = _read_csv_rows(material_master_path)
     vendor_rows = _read_csv_rows(vendor_sourcing_path)
-
     material_by_id = {row["MATERIAL_ID"]: row for row in material_rows}
-    original_row = material_by_id[shortage_event["material_id"]]
-
     fastener_candidates = [
         row for row in vendor_rows
         if row["MATERIAL_ID"] in material_by_id
@@ -339,37 +337,126 @@ def load_fastener_inputs_from_csv(
     ]
     if not fastener_candidates:
         raise ValueError("No fastener candidates found in vendor_sourcing.csv")
+    return shortage_event, material_by_id, fastener_candidates
 
-    min_price = min(int(row["UNIT_PRICE_KRW"]) for row in fastener_candidates)
-    chosen = fastener_candidates[0]
-    candidate_material_row = material_by_id[chosen["MATERIAL_ID"]]
 
-    target_material = {
+def _target_from_context(shortage_event: dict, material_by_id: dict[str, dict]) -> dict:
+    original_row = material_by_id[shortage_event["material_id"]]
+    return {
         "material_id": shortage_event["material_id"],
         "description": original_row["MATERIAL_ID"],
         "spec_text": original_row["TECHNICAL_SPECIFICATION"],
     }
-    candidate_material = {
-        "candidate_id": chosen["CANDIDATE_ID"],
-        "vendor_name": chosen["VENDOR_NAME"],
-        "source_url": chosen["SOURCE_URL"],
-        "source_type": chosen["SOURCE_TYPE"],
-        "price_krw": int(chosen["UNIT_PRICE_KRW"]),
+
+
+def _candidate_from_context(
+    candidate_row: dict,
+    material_by_id: dict[str, dict],
+    min_price: int,
+) -> dict:
+    candidate_material_row = material_by_id[candidate_row["MATERIAL_ID"]]
+    return {
+        "candidate_id": candidate_row["CANDIDATE_ID"],
+        "vendor_name": candidate_row["VENDOR_NAME"],
+        "source_url": candidate_row["SOURCE_URL"],
+        "source_type": candidate_row["SOURCE_TYPE"],
+        "price_krw": int(candidate_row["UNIT_PRICE_KRW"]),
         "min_price_krw": min_price,
-        "lead_time_days": int(chosen["LEAD_TIME_DAYS"]),
+        "lead_time_days": int(candidate_row["LEAD_TIME_DAYS"]),
         "moq": None,
         "spec_text": candidate_material_row["TECHNICAL_SPECIFICATION"],
-        "SPEC_EVIDENCE": chosen["SPEC_EVIDENCE"],
-        "PRICE_LISTED": chosen["PRICE_LISTED"],
-        "STOCK_LISTED": chosen["STOCK_LISTED"],
-        "LEADTIME_LISTED": chosen["LEADTIME_LISTED"],
+        "SPEC_EVIDENCE": candidate_row["SPEC_EVIDENCE"],
+        "PRICE_LISTED": candidate_row["PRICE_LISTED"],
+        "STOCK_LISTED": candidate_row["STOCK_LISTED"],
+        "LEADTIME_LISTED": candidate_row["LEADTIME_LISTED"],
     }
-    return target_material, candidate_material
+
+
+def load_fastener_inputs_from_csv(
+    shortage_event_path: Path = DEFAULT_FASTENER_SHORTAGE_EVENT,
+    material_master_path: Path = DEFAULT_MATERIAL_MASTER,
+    vendor_sourcing_path: Path = DEFAULT_VENDOR_SOURCING,
+) -> tuple[dict, dict]:
+    shortage_event, material_by_id, fastener_candidates = _load_fastener_csv_context(
+        shortage_event_path,
+        material_master_path,
+        vendor_sourcing_path,
+    )
+    min_price = min(int(row["UNIT_PRICE_KRW"]) for row in fastener_candidates)
+    chosen = fastener_candidates[0]
+    return _target_from_context(shortage_event, material_by_id), _candidate_from_context(chosen, material_by_id, min_price)
+
+
+def _decision_priority(decision: str) -> int:
+    return {
+        "recommend": 0,
+        "conditional_approve": 1,
+        "review_required": 2,
+        "reject": 3,
+    }.get(decision, 4)
+
+
+def _next_action(results: list[dict]) -> str:
+    viable = [
+        report for report in results
+        if report["decision_context"]["decision"] in {"recommend", "conditional_approve"}
+    ]
+    if viable:
+        return "approval_pending"
+    if any(report["decision_context"]["decision"] == "review_required" for report in results):
+        return "manual_review"
+    return "no_viable_candidate"
+
+
+def build_batch_report(reports: list[dict], mode: str) -> dict:
+    sorted_reports = sorted(
+        reports,
+        key=lambda report: (
+            _decision_priority(report["decision_context"]["decision"]),
+            -report["scores"]["final_score"],
+        ),
+    )
+    decision_counts: dict[str, int] = {}
+    for report in sorted_reports:
+        decision = report["decision_context"]["decision"]
+        decision_counts[decision] = decision_counts.get(decision, 0) + 1
+
+    return {
+        "batch_report_id": f"BER-{datetime.now().strftime('%Y%m%d-%H%M%S')}",
+        "generated_at": datetime.now().astimezone().isoformat(timespec="seconds"),
+        "mode": mode,
+        "candidate_count": len(sorted_reports),
+        "decision_counts": decision_counts,
+        "top_candidate_id": sorted_reports[0]["candidate_material"]["candidate_id"] if sorted_reports else None,
+        "next_action": _next_action(sorted_reports),
+        "items": sorted_reports,
+    }
+
+
+def evaluate_fastener_candidates_from_csv(
+    mode: str = "urgent",
+    shortage_event_path: Path = DEFAULT_FASTENER_SHORTAGE_EVENT,
+    material_master_path: Path = DEFAULT_MATERIAL_MASTER,
+    vendor_sourcing_path: Path = DEFAULT_VENDOR_SOURCING,
+) -> dict:
+    shortage_event, material_by_id, fastener_candidates = _load_fastener_csv_context(
+        shortage_event_path,
+        material_master_path,
+        vendor_sourcing_path,
+    )
+    target = _target_from_context(shortage_event, material_by_id)
+    min_price = min(int(row["UNIT_PRICE_KRW"]) for row in fastener_candidates)
+    reports = [
+        evaluate_fastener_candidate(target, _candidate_from_context(candidate, material_by_id, min_price), mode=mode)
+        for candidate in fastener_candidates
+    ]
+    return build_batch_report(reports, mode)
 
 
 def build_argument_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description="Run Phase 3 fastener evaluation.")
     parser.add_argument("--csv-demo", action="store_true", help="Use CSV and Phase 3 fastener sample event inputs.")
+    parser.add_argument("--batch", action="store_true", help="Evaluate all CSV fastener candidates and write a batch report.")
     parser.add_argument("--mode", choices=sorted(WEIGHTS), default="urgent", help="Scoring mode.")
     parser.add_argument("--output", type=Path, default=DEFAULT_OUTPUT, help="Evaluation report JSON output path.")
     parser.add_argument("--print", action="store_true", dest="print_report", help="Also print the report to stdout.")
@@ -378,11 +465,14 @@ def build_argument_parser() -> argparse.ArgumentParser:
 
 def main() -> None:
     args = build_argument_parser().parse_args()
-    if args.csv_demo:
+    if args.batch:
+        report = evaluate_fastener_candidates_from_csv(mode=args.mode)
+    elif args.csv_demo:
         target, candidate = load_fastener_inputs_from_csv()
+        report = evaluate_fastener_candidate(target, candidate, mode=args.mode)
     else:
         target, candidate = load_sample_phase3_inputs()
-    report = evaluate_fastener_candidate(target, candidate, mode=args.mode)
+        report = evaluate_fastener_candidate(target, candidate, mode=args.mode)
     write_evaluation_report(report, args.output)
     if args.print_report:
         print(json.dumps(report, ensure_ascii=False, indent=2))

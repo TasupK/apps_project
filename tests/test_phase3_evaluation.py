@@ -2,7 +2,12 @@ import unittest
 from pathlib import Path
 from tempfile import TemporaryDirectory
 
-from agents.evaluation_agent import evaluate_fastener_candidate, load_fastener_inputs_from_csv
+from agents.evaluation_agent import (
+    build_batch_report,
+    evaluate_fastener_candidate,
+    evaluate_fastener_candidates_from_csv,
+    load_fastener_inputs_from_csv,
+)
 from agents.reporting_agent import write_evaluation_report
 from tools.spec_normalizer import parse_fastener_spec
 
@@ -91,6 +96,26 @@ class Phase3EvaluationTests(unittest.TestCase):
             written_path = write_evaluation_report(report, output_path)
             self.assertTrue(written_path.exists())
             self.assertIn("conditional_approve", written_path.read_text(encoding="utf-8"))
+
+    def test_build_batch_report_sorts_viable_before_rejected(self):
+        rejected = evaluate_fastener_candidate(
+            TARGET,
+            build_candidate("Hex head bolt M10 thread pitch 1.5 length 45mm. Stainless steel 304."),
+        )
+        conditional = evaluate_fastener_candidate(
+            TARGET,
+            build_candidate("Hex head bolt M10 thread pitch 1.5 length 50mm. Stainless steel 316."),
+        )
+        batch = build_batch_report([rejected, conditional], mode="urgent")
+        self.assertEqual(batch["top_candidate_id"], "CAND-001")
+        self.assertEqual(batch["next_action"], "approval_pending")
+        self.assertEqual(batch["items"][0]["decision_context"]["decision"], "conditional_approve")
+
+    def test_evaluate_fastener_candidates_from_csv(self):
+        batch = evaluate_fastener_candidates_from_csv()
+        self.assertEqual(batch["candidate_count"], 1)
+        self.assertEqual(batch["items"][0]["candidate_material"]["candidate_id"], "WEB-005")
+        self.assertEqual(batch["items"][0]["decision_context"]["decision"], "reject")
 
 
 if __name__ == "__main__":

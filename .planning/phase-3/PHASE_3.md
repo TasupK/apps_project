@@ -67,6 +67,12 @@ Phase 3는 Phase 5 UI와 직접 연결하지 않고 JSON 산출물만 생성한�
 python3 agents/evaluation_agent.py --csv-demo --output output/evaluation_report.json
 ```
 
+여러 후보를 한 번에 평가하고 랭킹/요약까지 생성하려면 batch 모드를 사용한다.
+
+```bash
+python3 agents/evaluation_agent.py --batch --output output/evaluation_report_batch.json
+```
+
 샘플 리포트를 콘솔에도 같이 보고 싶으면 아래 명령을 사용한다.
 
 ```bash
@@ -81,10 +87,13 @@ python3 agents/evaluation_agent.py --csv-demo --output output/evaluation_report.
 | 자재 마스터 | `material_master.csv` |
 | 후보/공급처 mock | `vendor_sourcing.csv` |
 | 평가 리포트 산출물 | `output/evaluation_report.json` |
+| Batch 평가 리포트 산출물 | `output/evaluation_report_batch.json` |
 
 ## 현재 CSV 데모 결과
 
 현재 mock 데이터에서는 `MAT-3001` 원본 자재와 `WEB-005` 후보를 비교한다. 직경, 피치, 규격 체계는 일치하지만 길이 `50mm -> 55mm`가 불일치하므로 `decision = reject`가 정상 결과다.
+
+현재 CSV에는 fastener 후보가 1개뿐이라 batch 리포트도 후보 1개만 포함한다. Phase 2가 후보를 여러 개 넘기면 동일한 구조에서 자동으로 정렬된다.
 
 ## 완료 기준
 
