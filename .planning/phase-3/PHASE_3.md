@@ -11,6 +11,8 @@ Phase 3는 AI 추천의 안전성을 책임진다. 웹 검색 결과를 그대�
 포맷 기준 문서: [Phase 3 Format Contract](PHASE_3_FORMAT_CONTRACT.md)
 재질 판정 기준 문서: [Phase 3 Material Decision Matrix](PHASE_3_MATERIAL_DECISION_MATRIX.md)
 Phase 4 전달 계약: [Phase 3 to Phase 4 Contract](../shared/contracts/phase3_to_phase4_contract.md)
+작업 보드: [Phase 3 Task Board](phase3_task_board.md)
+MVP 제한사항: [Phase 3 Known Limits](phase3_known_limits.md)
 
 ## 작업 범위
 
