@@ -77,6 +77,7 @@ Phase 4는 후보를 다시 평가하지 않는다. Phase 4는 이 JSON의 `next
   "spec_analysis": {},
   "scores": {},
   "source_trust_breakdown": {},
+  "source_trust_notes": {},
   "decision_context": {}
 }
 ```
@@ -93,6 +94,10 @@ Phase 4는 모든 평가 로직을 다시 계산하지 않고 아래 필드만 �
 | `candidate_material.lead_time_days` | 납기 표시 |
 | `candidate_material.moq` | 최소 주문 수량 확인 |
 | `scores.final_score` | 후보 정렬/요약 표시 |
+| `source_trust_breakdown` | 출처 신뢰도 체크 항목 |
+| `source_trust_notes.summary` | 출처 신뢰도 요약 문구 |
+| `source_trust_notes.positive_factors` | 출처 신뢰도 가점 근거 |
+| `source_trust_notes.risk_factors` | 출처 신뢰도 위험 근거 |
 | `decision_context.decision` | 후보별 추천/검토/반려 상태 |
 | `decision_context.risk_level` | 승인 메시지의 위험등급 |
 | `decision_context.recommendation_reason` | 사용자에게 보여줄 추천 근거 |

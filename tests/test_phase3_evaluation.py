@@ -129,6 +129,15 @@ class Phase3EvaluationTests(unittest.TestCase):
             self.assertTrue(written_path.exists())
             self.assertIn("conditional_approve", written_path.read_text(encoding="utf-8"))
 
+    def test_source_trust_notes_explain_low_trust_source(self):
+        candidate = build_candidate("Hex head bolt M10 thread pitch 1.5 length 50mm. Stainless steel 304.", source_type="Marketplace")
+        candidate["STOCK_LISTED"] = False
+        candidate["LEADTIME_LISTED"] = False
+        report = evaluate_fastener_candidate(TARGET, candidate)
+        self.assertEqual(report["decision_context"]["decision"], "review_required")
+        self.assertIn("출처 신뢰도가 낮아", report["source_trust_notes"]["summary"])
+        self.assertIn("재고 표시가 없어 실제 구매 가능 여부 확인이 필요합니다.", report["source_trust_notes"]["risk_factors"])
+
     def test_build_batch_report_sorts_viable_before_rejected(self):
         rejected = evaluate_fastener_candidate(
             TARGET,

@@ -61,6 +61,7 @@
         "spec_analysis",
         "scores",
         "source_trust_breakdown",
+        "source_trust_notes",
         "decision_context"
       ],
       "properties": {
@@ -88,6 +89,27 @@
         },
         "source_trust_breakdown": {
           "type": "object"
+        },
+        "source_trust_notes": {
+          "type": "object",
+          "required": ["summary", "positive_factors", "risk_factors"],
+          "properties": {
+            "summary": {
+              "type": "string"
+            },
+            "positive_factors": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "risk_factors": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            }
+          }
         },
         "decision_context": {
           "type": "object",

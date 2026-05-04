@@ -36,11 +36,11 @@ MATERIAL_GROUPS = {
 }
 
 SOURCE_TYPE_BREAKDOWN = {
-    "official_distributor": {"official_distributor": True, "datasheet_bonus": 30},
-    "manufacturer_page": {"official_distributor": False, "datasheet_bonus": 25},
-    "industrial_marketplace": {"official_distributor": False, "datasheet_bonus": 18},
-    "marketplace": {"official_distributor": False, "datasheet_bonus": 10},
-    "unknown": {"official_distributor": False, "datasheet_bonus": 0},
+    "official_distributor": {"official_distributor": True, "datasheet_bonus": 30, "label": "공식 대리점"},
+    "manufacturer_page": {"official_distributor": False, "datasheet_bonus": 25, "label": "제조사 공식 페이지"},
+    "industrial_marketplace": {"official_distributor": False, "datasheet_bonus": 18, "label": "산업재 전문몰"},
+    "marketplace": {"official_distributor": False, "datasheet_bonus": 10, "label": "일반 마켓플레이스"},
+    "unknown": {"official_distributor": False, "datasheet_bonus": 0, "label": "출처 불명"},
 }
 
 WEIGHTS = {
@@ -132,7 +132,7 @@ def _highlight_differences(original: FastenerSpec, candidate: FastenerSpec) -> l
     return differences
 
 
-def _source_trust_breakdown(candidate: dict) -> tuple[dict, int]:
+def _source_trust_breakdown(candidate: dict) -> tuple[dict, int, dict]:
     source_type = _snake_source_type(candidate.get("source_type") or candidate.get("SOURCE_TYPE", "unknown"))
     source_meta = SOURCE_TYPE_BREAKDOWN.get(source_type, SOURCE_TYPE_BREAKDOWN["unknown"])
     breakdown = {
@@ -147,7 +147,46 @@ def _source_trust_breakdown(candidate: dict) -> tuple[dict, int]:
     score += 20 if breakdown["price_visible"] else 0
     score += 20 if breakdown["leadtime_visible"] else 0
     score += 10 if candidate.get("SOURCE_URL") else 0
-    return breakdown, min(score, 100)
+    score = min(score, 100)
+    return breakdown, score, _source_trust_notes(source_meta["label"], breakdown, score)
+
+
+def _source_trust_notes(source_label: str, breakdown: dict, score: int) -> dict:
+    positive_factors = [f"출처 유형이 '{source_label}'로 분류되었습니다."]
+    risk_factors = []
+
+    if breakdown["official_distributor"]:
+        positive_factors.append("공식 판매처로 확인되어 출처 신뢰도가 높습니다.")
+    else:
+        risk_factors.append("공식 판매처 여부가 확인되지 않았습니다.")
+
+    if breakdown["datasheet_available"]:
+        positive_factors.append("규격 근거 텍스트가 충분하여 스펙 확인 가능성이 높습니다.")
+    else:
+        risk_factors.append("데이터시트 또는 상세 규격 근거가 부족합니다.")
+
+    for field, positive_message, risk_message in [
+        ("stock_visible", "재고 표시가 확인되었습니다.", "재고 표시가 없어 실제 구매 가능 여부 확인이 필요합니다."),
+        ("price_visible", "가격 표시가 확인되었습니다.", "가격 표시가 없어 견적 확인이 필요합니다."),
+        ("leadtime_visible", "납기 표시가 확인되었습니다.", "납기 표시가 없어 긴급 발주 적합성 확인이 필요합니다."),
+    ]:
+        if breakdown[field]:
+            positive_factors.append(positive_message)
+        else:
+            risk_factors.append(risk_message)
+
+    if score >= 80:
+        summary = "출처 신뢰도가 높아 자동 추천 근거로 사용할 수 있습니다."
+    elif score >= 50:
+        summary = "출처 신뢰도는 보통 수준이며 주요 표시 정보 확인이 필요합니다."
+    else:
+        summary = "출처 신뢰도가 낮아 자동 추천보다 사람 검토가 필요합니다."
+
+    return {
+        "summary": summary,
+        "positive_factors": positive_factors,
+        "risk_factors": risk_factors,
+    }
 
 
 def _lead_time_score(days: int) -> int:
@@ -250,7 +289,7 @@ def evaluate_fastener_candidate(
     critical_check = _critical_spec_check(target_spec, candidate_spec)
     material_decision = _material_decision(target_spec.material, candidate_spec.material)
     differences = _highlight_differences(target_spec, candidate_spec)
-    trust_breakdown, source_trust_score = _source_trust_breakdown(candidate_material)
+    trust_breakdown, source_trust_score, source_trust_notes = _source_trust_breakdown(candidate_material)
 
     scores = {
         "compatibility_score": _compatibility_score(critical_check, material_decision[0]),
@@ -288,6 +327,7 @@ def evaluate_fastener_candidate(
         },
         "scores": scores,
         "source_trust_breakdown": trust_breakdown,
+        "source_trust_notes": source_trust_notes,
         "decision_context": decision_context,
     }
 

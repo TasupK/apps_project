@@ -98,6 +98,7 @@
   "spec_analysis": {},
   "scores": {},
   "source_trust_breakdown": {},
+  "source_trust_notes": {},
   "decision_context": {}
 }
 ```
@@ -116,6 +117,7 @@
 | `spec_analysis` | object | Yes | 규격 비교 결과 |
 | `scores` | object | Yes | 정량 점수 결과 |
 | `source_trust_breakdown` | object | Yes | 출처 신뢰도 세부 항목 |
+| `source_trust_notes` | object | Yes | 출처 신뢰도 설명 문구 |
 | `decision_context` | object | Yes | 추천/반려/조건부 승인 설명 |
 
 ### `target_material`
@@ -166,6 +168,14 @@
 | `stock_visible` | boolean | Yes | 재고 표시 여부 |
 | `price_visible` | boolean | Yes | 가격 표시 여부 |
 | `leadtime_visible` | boolean | Yes | 납기 표시 여부 |
+
+### `source_trust_notes`
+
+| Field | Type | Required | Description |
+|---|---|---:|---|
+| `summary` | string | Yes | 출처 신뢰도 요약 |
+| `positive_factors` | array[string] | Yes | 출처 신뢰도 가점 근거 |
+| `risk_factors` | array[string] | Yes | 출처 신뢰도 위험 근거 |
 
 ### `decision_context`
 

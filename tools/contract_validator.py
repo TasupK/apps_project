@@ -28,6 +28,7 @@ ITEM_REQUIRED_FIELDS = {
     "spec_analysis",
     "scores",
     "source_trust_breakdown",
+    "source_trust_notes",
     "decision_context",
 }
 
@@ -38,6 +39,12 @@ DECISION_CONTEXT_REQUIRED_FIELDS = {
     "approval_conditions",
     "rejection_reason",
     "review_required",
+}
+
+SOURCE_TRUST_NOTES_REQUIRED_FIELDS = {
+    "summary",
+    "positive_factors",
+    "risk_factors",
 }
 
 
@@ -95,6 +102,8 @@ def _validate_item(item: dict, index: int, errors: list[str]) -> None:
     if item["mode"] not in VALID_MODES:
         errors.append(f"{prefix}.mode must be one of {sorted(VALID_MODES)}")
 
+    _validate_source_trust_notes(item["source_trust_notes"], prefix, errors)
+
     decision_context = item["decision_context"]
     _require_fields(decision_context, DECISION_CONTEXT_REQUIRED_FIELDS, f"{prefix}.decision_context", errors)
     if any(error.startswith(f"{prefix}.decision_context") for error in errors):
@@ -111,6 +120,26 @@ def _validate_item(item: dict, index: int, errors: list[str]) -> None:
 
     if not isinstance(decision_context["review_required"], bool):
         errors.append(f"{prefix}.decision_context.review_required must be boolean")
+
+
+def _validate_source_trust_notes(notes: dict, prefix: str, errors: list[str]) -> None:
+    notes_prefix = f"{prefix}.source_trust_notes"
+    if not isinstance(notes, dict):
+        errors.append(f"{notes_prefix} must be an object")
+        return
+
+    _require_fields(notes, SOURCE_TRUST_NOTES_REQUIRED_FIELDS, notes_prefix, errors)
+    if any(error.startswith(notes_prefix) for error in errors):
+        return
+
+    if not isinstance(notes["summary"], str):
+        errors.append(f"{notes_prefix}.summary must be a string")
+
+    if not isinstance(notes["positive_factors"], list):
+        errors.append(f"{notes_prefix}.positive_factors must be an array")
+
+    if not isinstance(notes["risk_factors"], list):
+        errors.append(f"{notes_prefix}.risk_factors must be an array")
 
 
 def _validate_counts(report: dict, errors: list[str]) -> None:
