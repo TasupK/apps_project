@@ -59,6 +59,33 @@ Phase 3는 AI 추천의 안전성을 책임진다. 웹 검색 결과를 그대�
 }
 ```
 
+## 실행 방법
+
+Phase 3는 Phase 5 UI와 직접 연결하지 않고 JSON 산출물만 생성한다.
+
+```bash
+python3 agents/evaluation_agent.py --csv-demo --output output/evaluation_report.json
+```
+
+샘플 리포트를 콘솔에도 같이 보고 싶으면 아래 명령을 사용한다.
+
+```bash
+python3 agents/evaluation_agent.py --csv-demo --output output/evaluation_report.json --print
+```
+
+## 입력/출력 파일
+
+| 구분 | 파일 |
+|---|---|
+| 부족 이벤트 mock | `.planning/phase-3/fastener_shortage_event.sample.json` |
+| 자재 마스터 | `material_master.csv` |
+| 후보/공급처 mock | `vendor_sourcing.csv` |
+| 평가 리포트 산출물 | `output/evaluation_report.json` |
+
+## 현재 CSV 데모 결과
+
+현재 mock 데이터에서는 `MAT-3001` 원본 자재와 `WEB-005` 후보를 비교한다. 직경, 피치, 규격 체계는 일치하지만 길이 `50mm -> 55mm`가 불일치하므로 `decision = reject`가 정상 결과다.
+
 ## 완료 기준
 
 - 후보별 기술 호환성 점수가 계산된다.
@@ -73,6 +100,12 @@ Phase 3는 AI 추천의 안전성을 책임진다. 웹 검색 결과를 그대�
 - 공식 출처 후보가 마켓플레이스 후보보다 높은 신뢰도를 받는가?
 - 가격이 낮아도 납기가 너무 길면 최종 점수가 낮아지는가?
 - 리스크 메모가 원본/후보 스펙 차이를 근거로 작성되는가?
+
+## 테스트 실행
+
+```bash
+python3 -m unittest tests/test_phase3_evaluation.py
+```
 
 ## 샘플 리포트
 

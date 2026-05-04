@@ -1,0 +1,19 @@
+{
+  "event_id": "SE-20260504-FASTENER-001",
+  "status": "SHORTAGE_DETECTED",
+  "material_id": "MAT-3001",
+  "material_name": "Hex Bolt M10x50",
+  "category": "Fastener",
+  "plant": "P100",
+  "current_stock": 500,
+  "safety_stock": 1000,
+  "shortage_qty": 500,
+  "technical_specification": "Hex head bolt M10 thread pitch 1.5 length 50mm. Stainless steel 304.",
+  "search_keywords": [
+    "Hex bolt M10",
+    "pitch 1.5",
+    "length 50mm",
+    "SUS304"
+  ],
+  "detected_at": "2026-05-04T15:00:00+09:00"
+}
