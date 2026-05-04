@@ -46,6 +46,38 @@ class Phase3EvaluationTests(unittest.TestCase):
         self.assertEqual(parsed.thread_system, "Metric")
         self.assertEqual(parsed.material, "SUS304")
 
+    def test_parse_compact_metric_spec_without_pitch(self):
+        parsed = parse_fastener_spec("SUS304 Hex Socket Bolt M10x50 L50mm")
+        self.assertEqual(parsed.diameter, "M10")
+        self.assertEqual(parsed.pitch, None)
+        self.assertEqual(parsed.length_mm, 50)
+        self.assertEqual(parsed.thread_system, "Metric")
+        self.assertEqual(parsed.material, "SUS304")
+
+    def test_parse_compact_metric_spec_with_pitch(self):
+        parsed = parse_fastener_spec("SUS316 cap screw M10-1.5x50")
+        self.assertEqual(parsed.diameter, "M10")
+        self.assertEqual(parsed.pitch, "1.5")
+        self.assertEqual(parsed.length_mm, 50)
+        self.assertEqual(parsed.thread_system, "Metric")
+        self.assertEqual(parsed.material, "SUS316")
+
+    def test_parse_metric_spec_with_p_prefix(self):
+        parsed = parse_fastener_spec("Steel bolt M8 P1.25 L25mm strength class 8.8")
+        self.assertEqual(parsed.diameter, "M8")
+        self.assertEqual(parsed.pitch, "1.25")
+        self.assertEqual(parsed.length_mm, 25)
+        self.assertEqual(parsed.thread_system, "Metric")
+        self.assertEqual(parsed.material, "8.8")
+
+    def test_parse_unc_spec_and_convert_length_to_mm(self):
+        parsed = parse_fastener_spec('Hex bolt 1/4-20 UNC x 1" steel')
+        self.assertEqual(parsed.diameter, "1/4")
+        self.assertEqual(parsed.pitch, "20")
+        self.assertEqual(parsed.length_mm, 25)
+        self.assertEqual(parsed.thread_system, "UNC")
+        self.assertEqual(parsed.material, "STEEL")
+
     def test_reject_on_diameter_mismatch(self):
         candidate = build_candidate("Hex head bolt M8 thread pitch 1.5 length 50mm. Stainless steel 304.")
         report = evaluate_fastener_candidate(TARGET, candidate)
