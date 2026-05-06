@@ -13,6 +13,7 @@ Phase 3는 AI 추천의 안전성을 책임진다. 웹 검색 결과를 그대�
 Phase 4 전달 계약: [Phase 3 to Phase 4 Contract](../shared/contracts/phase3_to_phase4_contract.md)
 작업 보드: [Phase 3 Task Board](phase3_task_board.md)
 MVP 제한사항: [Phase 3 Known Limits](phase3_known_limits.md)
+최종 점검: [Phase 3 Readiness Review](PHASE_3_READINESS_REVIEW.md)
 
 ## 작업 범위
 
