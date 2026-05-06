@@ -25,7 +25,7 @@
 | Done | P1 | 리포트 메시지 한국어화 | `agents/evaluation_agent.py` |
 | Done | P1 | 출처 신뢰도 계산 근거 설명 강화 | `decision_context`, `source_trust_breakdown` |
 | Done | P1 | 재질 matrix 보강 후보 정리 | `PHASE_3_MATERIAL_DECISION_MATRIX.md` |
-| Todo | P2 | CLI 실행 결과를 발표용 로그 형태로 정리 | `output/` sample artifacts |
+| Done | P2 | CLI 실행 결과를 발표용 로그 형태로 정리 | `output/` sample artifacts |
 
 ## Recommended Implementation Order
 
