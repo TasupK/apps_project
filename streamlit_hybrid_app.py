@@ -2,15 +2,18 @@ import streamlit as st
 import pandas as pd
 import time
 import os
+from datetime import datetime
 
 # 1. 페이지 설정 (넓은 화면 레이아웃)
-st.set_page_config(page_title="SCM Copilot", layout="wide", page_icon="📦")
+st.set_page_config(page_title="BuyBee", layout="wide", page_icon="🔎")
 
 # 2. 데이터 경로 설정 (미리 만들어둔 mock data 활용)
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 INV_FILE = os.path.join(BASE_DIR, 'inventory_data.csv')
 MAT_FILE = os.path.join(BASE_DIR, 'material_master.csv')
 VEN_FILE = os.path.join(BASE_DIR, 'vendor_sourcing.csv')
+PO_FILE = os.path.join(BASE_DIR, 'PO_Result.csv')
+BUDGET_LIMIT_KRW = 5_000_000
 
 # 3. 데이터 로드 함수
 @st.cache_data
@@ -30,7 +33,56 @@ except FileNotFoundError:
 if "messages" not in st.session_state:
     st.session_state.messages = [{"role": "assistant", "content": "안녕하세요! SCM Copilot입니다. 무엇을 도와드릴까요? (명령어 예: '재고 확인해줘')"}]
 if "step" not in st.session_state:
-    st.session_state.step = 0 # 0: 대기, 1: 재고 감지, 2: 대체재 탐색, 3: 발주 승인
+    st.session_state.step = 0 # 0: 대기, 1: 재고 감지, 2: 웹 검색/검증, 3: 발주 초안 생성
+if "selected_material" not in st.session_state:
+    st.session_state.selected_material = None
+if "po_created" not in st.session_state:
+    st.session_state.po_created = False
+if "approval_ready" not in st.session_state:
+    st.session_state.approval_ready = False
+
+def get_shortage():
+    shortage_df = df_inv[df_inv['CURRENT_STOCK'] < df_inv['SAFETY_STOCK']]
+    if shortage_df.empty:
+        return None
+    row = shortage_df.iloc[0]
+    return {
+        "material_id": row["MATERIAL_ID"],
+        "material_name": row["MATERIAL_NAME"],
+        "current_stock": int(row["CURRENT_STOCK"]),
+        "safety_stock": int(row["SAFETY_STOCK"]),
+        "shortage_qty": int(row["SAFETY_STOCK"] - row["CURRENT_STOCK"]),
+    }
+
+def get_recommendation(target_material_id="MAT-1001"):
+    target_spec = df_mat[df_mat['MATERIAL_ID'] == target_material_id]['TECHNICAL_SPECIFICATION'].values[0]
+    candidates = df_ven[df_ven['MATERIAL_ID'] == 'MAT-1002'].sort_values(
+        ["FINAL_SCORE", "LEAD_TIME_DAYS"],
+        ascending=[False, True],
+    )
+    best = candidates.iloc[0]
+    sub_spec = df_mat[df_mat['MATERIAL_ID'] == best['MATERIAL_ID']]['TECHNICAL_SPECIFICATION'].values[0]
+    return target_spec, sub_spec, candidates, best
+
+def create_po_draft(shortage, best):
+    po_row = {
+        "PO_DRAFT_NO": f"PO-DRAFT-{datetime.now().strftime('%Y%m%d%H%M%S')}",
+        "CREATED_AT": datetime.now().isoformat(timespec="seconds"),
+        "SOURCE": "Human-approved web research result",
+        "VENDOR_NAME": best["VENDOR_NAME"],
+        "MATERIAL_ID": best["MATERIAL_ID"],
+        "CANDIDATE_ID": best["CANDIDATE_ID"],
+        "UNIT_PRICE_KRW": int(best["UNIT_PRICE_KRW"]),
+        "ORDER_QTY": shortage["shortage_qty"],
+        "TOTAL_AMOUNT_KRW": int(best["UNIT_PRICE_KRW"]) * shortage["shortage_qty"],
+        "LEAD_TIME_DAYS": int(best["LEAD_TIME_DAYS"]),
+        "SOURCE_URL": best["SOURCE_URL"],
+        "FINAL_SCORE": int(best["FINAL_SCORE"]),
+        "RISK_NOTE": best["RISK_NOTE"],
+    }
+    pd.DataFrame([po_row]).to_csv(PO_FILE, index=False)
+    st.session_state.po_created = True
+    return po_row
 
 # 5. 하이브리드 투-패널 화면 분할 (대시보드 6.5 : 챗봇 3.5 비율)
 col1, col2 = st.columns([6.5, 3.5])
@@ -39,41 +91,60 @@ col1, col2 = st.columns([6.5, 3.5])
 # 🖥️ [좌측 패널] 웹 대시보드 화면 (PC 모니터용)
 # ==========================================
 with col1:
-    st.title("📊 SCM 지능형 조달 대시보드")
+    st.title("BuyBee 웹 리서치 기반 대체 자재 대시보드")
     
     # [Step 1] 재고 현황 시각화
-    st.subheader("[Step 1] 실시간 재고 현황 모니터링")
+    st.subheader("[Step 1] 재고 리스크 모니터링")
     chart_data = df_inv[['MATERIAL_NAME', 'CURRENT_STOCK', 'SAFETY_STOCK']].set_index('MATERIAL_NAME')
     st.bar_chart(chart_data, color=["#FF4B4B", "#0068C9"]) # 빨간색: 현재재고, 파란색: 안전재고
     
-    shortage = df_inv[df_inv['CURRENT_STOCK'] < df_inv['SAFETY_STOCK']]
-    if not shortage.empty:
-        st.error(f"⚠️ 경고: '{shortage.iloc[0]['MATERIAL_NAME']}' 의 재고가 안전 수준 이하로 떨어졌습니다!")
+    shortage = get_shortage()
+    if shortage:
+        st.error(f"경고: '{shortage['material_name']}' 재고가 안전 수준 이하입니다. 부족 수량: {shortage['shortage_qty']}개")
     
     st.markdown("---")
     
-    # [Step 2 & 3] AI 스펙 분석 및 벤더 비교 (챗봇 진행에 따라 나타남)
+    # [Step 2 & 3] 웹 검색 후보 검증 및 벤더 비교 (챗봇 진행에 따라 나타남)
     if st.session_state.step >= 2:
-        st.subheader("[Step 2 & 3] AI 분석 기반 대체재 및 공급망 비교")
-        st.markdown("**🔍 AI 규격 분석 결과 (Vector DB 매칭 완료)**")
+        st.subheader("[Step 2 & 3] 웹 검색 후보 검증 및 구매 전략")
+        st.markdown("**자동 검증 결과: Rule 기반 스펙 비교 + 출처 신뢰도 평가 + 사용자 2차 검토 대기**")
         
-        target_spec = df_mat[df_mat['MATERIAL_ID'] == 'MAT-1001']['TECHNICAL_SPECIFICATION'].values[0]
-        sub_spec = df_mat[df_mat['MATERIAL_ID'] == 'MAT-1002']['TECHNICAL_SPECIFICATION'].values[0]
+        target_spec, sub_spec, candidates, best = get_recommendation()
         
         c1, c2 = st.columns(2)
-        c1.info(f"**📌 결품 자재 (MAT-1001)**\n\n{target_spec}")
-        c2.success(f"**💡 발견된 대체 자재 (MAT-1002) - 일치도 95%**\n\n{sub_spec}")
+        c1.info(f"**결품 자재 (MAT-1001)**\n\n{target_spec}")
+        c2.success(f"**웹 검색 후보 ({best['MATERIAL_ID']}) - 기술 호환성 {best['TECH_COMPATIBILITY_PERCENT']}%**\n\n{sub_spec}")
         
-        st.markdown("**🤝 공급업체 납기 및 단가 비교표**")
-        st.dataframe(df_ven, use_container_width=True, hide_index=True)
+        m1, m2, m3, m4 = st.columns(4)
+        m1.metric("추천 업체", best["VENDOR_NAME"])
+        m2.metric("최종 점수", f"{best['FINAL_SCORE']}/100")
+        m3.metric("출처 신뢰도", f"{best['SOURCE_RELIABILITY_SCORE']}/100")
+        m4.metric("예상 납기", f"{best['LEAD_TIME_DAYS']}일")
+
+        st.markdown("**웹 검색 후보 및 신뢰도 검증표**")
+        st.dataframe(
+            candidates[[
+                "CANDIDATE_ID", "VENDOR_NAME", "UNIT_PRICE_KRW", "LEAD_TIME_DAYS",
+                "SOURCE_TYPE", "TECH_COMPATIBILITY_PERCENT", "SOURCE_RELIABILITY_SCORE",
+                "FINAL_SCORE", "VALIDATION_STATUS", "RISK_NOTE"
+            ]],
+            use_container_width=True,
+            hide_index=True,
+        )
+        st.caption(f"출처 URL: {best['SOURCE_URL']}")
+
+    if st.session_state.po_created and os.path.exists(PO_FILE):
+        st.markdown("---")
+        st.subheader("[Step 5] PO 초안 생성 결과")
+        st.dataframe(pd.read_csv(PO_FILE), use_container_width=True, hide_index=True)
 
 
 # ==========================================
 # 💬 [우측 패널] 메신저 챗봇 UI (모바일 호환)
 # ==========================================
 with col2:
-    st.subheader("🤖 AI Personal Assistant")
-    st.caption("사내 메신저를 통한 승인 워크플로우 대기창")
+    st.subheader("AI Personal Assistant")
+    st.caption("웹 리서치 결과를 검토하고 승인하는 Human-in-the-loop 창")
     
     # 채팅화면 박스 (고정 높이)
     chat_container = st.container(height=550)
@@ -102,16 +173,34 @@ with col2:
                 # 시나리오 트리거
                 if "재고" in prompt or "위험" in prompt:
                     st.session_state.step = 1
-                    full_response = "현재 **MAT-1001 (Ball Bearing 6204-ZZ)**의 재고가 10개로 안전재고(50개)를 밑돌고 있습니다.\n\nERP 마스터 데이터를 뒤져 다른 제조사의 호환 가능한 대체재를 검색할까요?"
+                    st.session_state.approval_ready = False
+                    shortage = get_shortage()
+                    full_response = f"현재 **{shortage['material_id']} ({shortage['material_name']})**의 재고가 {shortage['current_stock']}개로 안전재고({shortage['safety_stock']}개)를 밑돌고 있습니다.\n\n자재 스펙을 기반으로 웹에서 대체 후보를 검색하고 출처 신뢰도까지 검증할까요?"
                 
                 elif "대체" in prompt or "찾아" in prompt or "업체" in prompt or "검색" in prompt:
                     st.session_state.step = 2
-                    full_response = "왼쪽 대시보드에 95% 일치하는 **대체재(MAT-1002)** 스펙과 비교표를 띄웠습니다.\n\n비교 분석 결과, **'Seoul Bearings Co.'**가 15,000원으로 단가는 조금 높지만 당일 도착(납기 1일)이 가능하여 긴급 조달 1순위로 추천합니다.\n\n총 75만 원으로 해당 부서의 소모품 예산 한도(500만 원) 내입니다. 이대로 발주를 진행할까요?"
+                    st.session_state.approval_ready = True
+                    shortage = get_shortage()
+                    _, _, _, best = get_recommendation()
+                    total = int(best["UNIT_PRICE_KRW"]) * shortage["shortage_qty"]
+                    full_response = f"왼쪽 대시보드에 웹 검색 후보와 1차 검증 결과를 띄웠습니다.\n\n1순위는 **{best['VENDOR_NAME']}**의 **{best['MATERIAL_ID']}**입니다. 기술 호환성 {best['TECH_COMPATIBILITY_PERCENT']}%, 출처 신뢰도 {best['SOURCE_RELIABILITY_SCORE']}점, 납기 {best['LEAD_TIME_DAYS']}일입니다.\n\n예상 발주 금액은 {total:,}원으로 예산 한도({BUDGET_LIMIT_KRW:,}원) 내입니다. 다만 {best['RISK_NOTE']} 최종 승인하시겠습니까?"
                     # Streamlit 화면 즉시 렌더링을 위해 rerun 효과
+
+                elif "반려" in prompt or "거절" in prompt or "보류" in prompt or "중단" in prompt:
+                    st.session_state.step = 2
+                    st.session_state.approval_ready = False
+                    full_response = "요청을 보류했습니다. PO 초안은 생성하지 않았습니다.\n\n필요하면 검색 조건을 바꿔 다른 후보를 다시 찾겠습니다."
                     
                 elif "발주" in prompt or "승인" in prompt or "진행" in prompt or "응" in prompt or "어" in prompt:
-                    st.session_state.step = 3
-                    full_response = "✅ **[결제 확정 및 ERP 전송 완료]**\n\n승인되었습니다. SAP ERP에 구매 오더(PO #4500019293) 시스템 전표를 발행했습니다. 수고하셨습니다!"
+                    if not st.session_state.approval_ready:
+                        full_response = "아직 승인할 검증 리포트가 없습니다. 먼저 `대체품 찾아줘`라고 입력해 후보와 출처 신뢰도 검증 결과를 확인해주세요."
+                    else:
+                        st.session_state.step = 3
+                        st.session_state.approval_ready = False
+                        shortage = get_shortage()
+                        _, _, _, best = get_recommendation()
+                        po_row = create_po_draft(shortage, best)
+                        full_response = f"**[승인 완료 및 PO 초안 생성]**\n\n사용자 승인에 따라 `{os.path.basename(PO_FILE)}` 파일을 생성했습니다.\n\n전표 초안: {po_row['PO_DRAFT_NO']}\n업체: {po_row['VENDOR_NAME']}\n수량: {po_row['ORDER_QTY']}개\n예상 금액: {po_row['TOTAL_AMOUNT_KRW']:,}원\n\n실제 SAP 전송 전 검토용 Mock 결과물입니다."
                 
                 else:
                     full_response = "말씀하신 내용을 이해하지 못했습니다. (팁: '재고 확인해줘' -> '대체품 찾아줘' -> '승인할게' 순서로 입력해보세요)"

@@ -1,0 +1,348 @@
+{
+  "batch_report_id": "BER-20260504-161712",
+  "generated_at": "2026-05-04T16:17:12+09:00",
+  "mode": "urgent",
+  "candidate_count": 4,
+  "decision_counts": {
+    "recommend": 1,
+    "conditional_approve": 1,
+    "review_required": 1,
+    "reject": 1
+  },
+  "top_candidate_id": "WEB-006",
+  "next_action": "approval_pending",
+  "items": [
+    {
+      "report_id": "ER-20260504-161712",
+      "generated_at": "2026-05-04T16:17:12+09:00",
+      "mode": "urgent",
+      "target_material": {
+        "material_id": "MAT-3001",
+        "description": "MAT-3001",
+        "spec": {
+          "diameter": "M10",
+          "pitch": "1.5",
+          "length_mm": 50,
+          "thread_system": "Metric",
+          "material": "SUS304"
+        }
+      },
+      "candidate_material": {
+        "candidate_id": "WEB-006",
+        "vendor_name": "MISUMI Korea",
+        "source_url": "https://example.com/misumi/m10-1-5x50-sus304",
+        "source_type": "official_distributor",
+        "price_krw": 220,
+        "lead_time_days": 1,
+        "moq": null,
+        "spec": {
+          "diameter": "M10",
+          "pitch": "1.5",
+          "length_mm": 50,
+          "thread_system": "Metric",
+          "material": "SUS304"
+        }
+      },
+      "spec_analysis": {
+        "critical_spec_check": {
+          "diameter_match": true,
+          "pitch_match": true,
+          "thread_system_match": true,
+          "length_match": true,
+          "critical_mismatch": false
+        },
+        "highlighted_differences": []
+      },
+      "scores": {
+        "compatibility_score": 100,
+        "source_trust_score": 90,
+        "lead_time_score": 100,
+        "price_score": 82,
+        "moq_score": 70,
+        "final_score": 96
+      },
+      "source_trust_breakdown": {
+        "official_distributor": true,
+        "datasheet_available": true,
+        "stock_visible": true,
+        "price_visible": true,
+        "leadtime_visible": true
+      },
+      "source_trust_notes": {
+        "summary": "출처 신뢰도가 높아 자동 추천 근거로 사용할 수 있습니다.",
+        "positive_factors": [
+          "출처 유형이 '공식 대리점'로 분류되었습니다.",
+          "공식 판매처로 확인되어 출처 신뢰도가 높습니다.",
+          "규격 근거 텍스트가 충분하여 스펙 확인 가능성이 높습니다.",
+          "재고 표시가 확인되었습니다.",
+          "가격 표시가 확인되었습니다.",
+          "납기 표시가 확인되었습니다."
+        ],
+        "risk_factors": []
+      },
+      "decision_context": {
+        "decision": "recommend",
+        "risk_level": "Low",
+        "recommendation_reason": "원본 자재와 후보 자재의 재질이 동일합니다.",
+        "approval_conditions": [],
+        "rejection_reason": null,
+        "review_required": false
+      }
+    },
+    {
+      "report_id": "ER-20260504-161712",
+      "generated_at": "2026-05-04T16:17:12+09:00",
+      "mode": "urgent",
+      "target_material": {
+        "material_id": "MAT-3001",
+        "description": "MAT-3001",
+        "spec": {
+          "diameter": "M10",
+          "pitch": "1.5",
+          "length_mm": 50,
+          "thread_system": "Metric",
+          "material": "SUS304"
+        }
+      },
+      "candidate_material": {
+        "candidate_id": "WEB-007",
+        "vendor_name": "Daara Precision",
+        "source_url": "https://example.com/daara/m10-1-5x50-sus316",
+        "source_type": "industrial_marketplace",
+        "price_krw": 260,
+        "lead_time_days": 2,
+        "moq": null,
+        "spec": {
+          "diameter": "M10",
+          "pitch": "1.5",
+          "length_mm": 50,
+          "thread_system": "Metric",
+          "material": "SUS316"
+        }
+      },
+      "spec_analysis": {
+        "critical_spec_check": {
+          "diameter_match": true,
+          "pitch_match": true,
+          "thread_system_match": true,
+          "length_match": true,
+          "critical_mismatch": false
+        },
+        "highlighted_differences": [
+          {
+            "spec": "material",
+            "original": "SUS304",
+            "candidate": "SUS316",
+            "impact": "재질 차이로 내식성, 강도, 비용에 영향이 있을 수 있습니다."
+          }
+        ]
+      },
+      "scores": {
+        "compatibility_score": 88,
+        "source_trust_score": 78,
+        "lead_time_score": 85,
+        "price_score": 69,
+        "moq_score": 70,
+        "final_score": 84
+      },
+      "source_trust_breakdown": {
+        "official_distributor": false,
+        "datasheet_available": true,
+        "stock_visible": true,
+        "price_visible": true,
+        "leadtime_visible": true
+      },
+      "source_trust_notes": {
+        "summary": "출처 신뢰도는 보통 수준이며 주요 표시 정보 확인이 필요합니다.",
+        "positive_factors": [
+          "출처 유형이 '산업재 전문몰'로 분류되었습니다.",
+          "규격 근거 텍스트가 충분하여 스펙 확인 가능성이 높습니다.",
+          "재고 표시가 확인되었습니다.",
+          "가격 표시가 확인되었습니다.",
+          "납기 표시가 확인되었습니다."
+        ],
+        "risk_factors": [
+          "공식 판매처 여부가 확인되지 않았습니다."
+        ]
+      },
+      "decision_context": {
+        "decision": "conditional_approve",
+        "risk_level": "Medium",
+        "recommendation_reason": "재질이 SUS304에서 SUS316으로 상향되어 사용 가능성은 있으나 비용과 현장 조건 확인이 필요합니다.",
+        "approval_conditions": [
+          "재질 대체에 따른 비용 증가와 내식성 요구조건 충족 여부를 확인해야 합니다."
+        ],
+        "rejection_reason": null,
+        "review_required": false
+      }
+    },
+    {
+      "report_id": "ER-20260504-161712",
+      "generated_at": "2026-05-04T16:17:12+09:00",
+      "mode": "urgent",
+      "target_material": {
+        "material_id": "MAT-3001",
+        "description": "MAT-3001",
+        "spec": {
+          "diameter": "M10",
+          "pitch": "1.5",
+          "length_mm": 50,
+          "thread_system": "Metric",
+          "material": "SUS304"
+        }
+      },
+      "candidate_material": {
+        "candidate_id": "WEB-008",
+        "vendor_name": "Open Market Seller",
+        "source_url": "https://example.com/market/m10x50-sus304",
+        "source_type": "marketplace",
+        "price_krw": 180,
+        "lead_time_days": 1,
+        "moq": null,
+        "spec": {
+          "diameter": "M10",
+          "pitch": "1.5",
+          "length_mm": 50,
+          "thread_system": "Metric",
+          "material": "SUS304"
+        }
+      },
+      "spec_analysis": {
+        "critical_spec_check": {
+          "diameter_match": true,
+          "pitch_match": true,
+          "thread_system_match": true,
+          "length_match": true,
+          "critical_mismatch": false
+        },
+        "highlighted_differences": []
+      },
+      "scores": {
+        "compatibility_score": 100,
+        "source_trust_score": 30,
+        "lead_time_score": 100,
+        "price_score": 100,
+        "moq_score": 70,
+        "final_score": 95
+      },
+      "source_trust_breakdown": {
+        "official_distributor": false,
+        "datasheet_available": true,
+        "stock_visible": false,
+        "price_visible": true,
+        "leadtime_visible": false
+      },
+      "source_trust_notes": {
+        "summary": "출처 신뢰도가 낮아 자동 추천보다 사람 검토가 필요합니다.",
+        "positive_factors": [
+          "출처 유형이 '일반 마켓플레이스'로 분류되었습니다.",
+          "규격 근거 텍스트가 충분하여 스펙 확인 가능성이 높습니다.",
+          "가격 표시가 확인되었습니다."
+        ],
+        "risk_factors": [
+          "공식 판매처 여부가 확인되지 않았습니다.",
+          "재고 표시가 없어 실제 구매 가능 여부 확인이 필요합니다.",
+          "납기 표시가 없어 긴급 발주 적합성 확인이 필요합니다."
+        ]
+      },
+      "decision_context": {
+        "decision": "review_required",
+        "risk_level": "High",
+        "recommendation_reason": "규격은 유사하지만 출처 신뢰도가 낮아 자동 추천할 수 없습니다.",
+        "approval_conditions": [],
+        "rejection_reason": null,
+        "review_required": true
+      }
+    },
+    {
+      "report_id": "ER-20260504-161712",
+      "generated_at": "2026-05-04T16:17:12+09:00",
+      "mode": "urgent",
+      "target_material": {
+        "material_id": "MAT-3001",
+        "description": "MAT-3001",
+        "spec": {
+          "diameter": "M10",
+          "pitch": "1.5",
+          "length_mm": 50,
+          "thread_system": "Metric",
+          "material": "SUS304"
+        }
+      },
+      "candidate_material": {
+        "candidate_id": "WEB-005",
+        "vendor_name": "Fastener Tech",
+        "source_url": "https://example.com/fastener-tech/m10x55-sus316",
+        "source_type": "official_distributor",
+        "price_krw": 200,
+        "lead_time_days": 2,
+        "moq": null,
+        "spec": {
+          "diameter": "M10",
+          "pitch": "1.5",
+          "length_mm": 55,
+          "thread_system": "Metric",
+          "material": "SUS316"
+        }
+      },
+      "spec_analysis": {
+        "critical_spec_check": {
+          "diameter_match": true,
+          "pitch_match": true,
+          "thread_system_match": true,
+          "length_match": false,
+          "critical_mismatch": true
+        },
+        "highlighted_differences": [
+          {
+            "spec": "length_mm",
+            "original": 50,
+            "candidate": 55,
+            "impact": "길이가 달라 조립 간섭 또는 체결 깊이 문제가 발생할 수 있습니다."
+          },
+          {
+            "spec": "material",
+            "original": "SUS304",
+            "candidate": "SUS316",
+            "impact": "재질 차이로 내식성, 강도, 비용에 영향이 있을 수 있습니다."
+          }
+        ]
+      },
+      "scores": {
+        "compatibility_score": 0,
+        "source_trust_score": 90,
+        "lead_time_score": 85,
+        "price_score": 90,
+        "moq_score": 70,
+        "final_score": 42
+      },
+      "source_trust_breakdown": {
+        "official_distributor": true,
+        "datasheet_available": true,
+        "stock_visible": true,
+        "price_visible": true,
+        "leadtime_visible": true
+      },
+      "source_trust_notes": {
+        "summary": "출처 신뢰도가 높아 자동 추천 근거로 사용할 수 있습니다.",
+        "positive_factors": [
+          "출처 유형이 '공식 대리점'로 분류되었습니다.",
+          "공식 판매처로 확인되어 출처 신뢰도가 높습니다.",
+          "규격 근거 텍스트가 충분하여 스펙 확인 가능성이 높습니다.",
+          "재고 표시가 확인되었습니다.",
+          "가격 표시가 확인되었습니다.",
+          "납기 표시가 확인되었습니다."
+        ],
+        "risk_factors": []
+      },
+      "decision_context": {
+        "decision": "reject",
+        "risk_level": "High",
+        "recommendation_reason": "필수 규격이 일치하지 않아 대체재로 추천하지 않습니다.",
+        "approval_conditions": [],
+        "rejection_reason": "직경, 피치, 규격 체계, 길이 중 하나 이상의 필수 스펙이 불일치합니다.",
+        "review_required": false
+      }
+    }
+  ]
+}

@@ -5,20 +5,31 @@
 
 ## Milestone 1: PoC 완성 (6주)
 
-### Phase 1: 뼈대 세우기 — Data Layer & Monitor Agent
+## Phase Files
+
+- [Phase 1: Mock Data Layer & Monitor Agent](phase-1/PHASE_1.md)
+- [Phase 1 Format Contract](phase-1/PHASE_1_FORMAT_CONTRACT.md)
+- [Phase 2: Web Research Agent & Source Collection](phase-2/PHASE_2.md)
+- [Phase 3: Trust & Evaluation Agent](phase-3/PHASE_3.md)
+- [Phase 3 Format Contract](phase-3/PHASE_3_FORMAT_CONTRACT.md)
+- [Phase 3 Material Decision Matrix](phase-3/PHASE_3_MATERIAL_DECISION_MATRIX.md)
+- [Phase 4: Orchestration & Human-in-the-Loop](phase-4/PHASE_4.md)
+- [Phase 5: Streamlit UI & Demo](phase-5/PHASE_5.md)
+
+### Phase 1: 뼈대 세우기 — Mock Data Layer & Monitor Agent
 *주차: 1~2주차 | 담당: 팀원 A*
 
-**Goal:** Mock ERP DB 세팅 및 재고 알람 연동 — AI 파이프라인의 감각 기관 구축
+**Goal:** 자재 마스터/재고 스냅샷/웹 후보 캐시 세팅 및 재고 알람 연동
 
 **Plans:**
-1. **Mock ERP DB 설계 및 구축**
-   - SQLite + Pydantic으로 MARA, MARD, MARC 테이블 생성
-   - Mock 자재 데이터 시딩 (부품 10종 이상)
+1. **Mock 데이터 설계 및 구축**
+   - CSV 또는 SQLite + Pydantic으로 자재 마스터, 재고 스냅샷, 웹 후보 캐시 구성
+   - Mock 자재/후보 데이터 시딩 (부품 10종 이상)
    - 가용재고/안전재고 필드 설정
 
-2. **부품 스펙 문서 벡터화 (RAG 준비)**
-   - LlamaIndex로 사내 부품 스펙 PDF/텍스트 인덱싱
-   - 벡터 스토어 생성 및 기본 검색 테스트
+2. **스펙 추출/검색 쿼리 준비**
+   - 자재 마스터의 기술 스펙에서 핵심 키워드 추출
+   - 검색 쿼리 템플릿과 필수 스펙 체크리스트 정의
 
 3. **Monitor Agent 구현**
    - 순수 Python Rule-based 재고 스캔 로직
@@ -26,10 +37,10 @@
    - 자재코드 + 파트넘버 State 객체 생성
 
 **Deliverables:**
-- `db/mock_erp.py` — SQLite Mock DB 초기화 스크립트
-- `db/models.py` — Pydantic 스키마 (MARA, MARD, MARC)
+- `data/` 또는 CSV — Mock 데이터
+- `db/models.py` — Pydantic 스키마
 - `db/seed_data.py` — Mock 자재 데이터
-- `rag/indexer.py` — LlamaIndex 벡터 인덱스 생성
+- `tools/query_builder.py` — 검색 쿼리 생성기
 - `agents/monitor_agent.py` — Monitor Agent
 - `tests/test_monitor.py` — 결품 감지 단위 테스트
 
@@ -37,19 +48,20 @@
 
 ---
 
-### Phase 2: 손발 — Search Agent & 조달청 API
+### Phase 2: 손발 — Web Research Agent & 신뢰도 수집
 *주차: 2~3주차 | 담당: 팀원 B*
 
-**Goal:** 조달청 API 데이터 수집 파이프라인 구축 및 Self-Correction 구현
+**Goal:** 웹 검색 기반 후보 수집 파이프라인과 출처 증거 수집 구현
 
 **Plans:**
-1. **조달청 API 연동 (또는 Mock)**
-   - 조달청 API 클라이언트 구현 (또는 샘플 응답 Mock)
-   - 파트넘버 기반 부품 검색 요청/응답 처리
+1. **웹 검색 후보 수집**
+   - 자재 스펙 기반 검색 쿼리 생성
+   - 제조사/공식 판매처/산업재몰/마켓플레이스 결과 수집
+   - 후보별 출처 URL, 가격, 재고, 납기, 스펙 증거 저장
 
 2. **Search Agent 구현**
-   - GPT-4o-mini로 API 응답에서 핵심 스펙 추출
-   - 후보군 JSON 파싱 및 정규화
+   - GPT-4o-mini 또는 규칙 기반 파서로 검색 결과에서 핵심 스펙 추출
+   - 후보군 JSON/CSV 파싱 및 정규화
    - Self-Correction: 후보 없을 시 검색어 변형 후 재시도 (최대 2회)
 
 3. **LangGraph State 설계**
@@ -57,7 +69,8 @@
    - Monitor → Search State 전달 연결
 
 **Deliverables:**
-- `tools/procurement_api.py` — 조달청 API 클라이언트
+- `tools/web_search.py` — 웹 검색/후보 수집 도구
+- `tools/source_validator.py` — 출처 신뢰도 평가 도구
 - `agents/search_agent.py` — Search Agent (GPT-4o-mini)
 - `graph/state.py` — LangGraph AgentState 정의
 - `tests/test_search.py` — 검색 및 재시도 로직 테스트
@@ -66,25 +79,25 @@
 
 ---
 
-### Phase 3: 두뇌 — Evaluation Agent & Reporting Agent
+### Phase 3: 두뇌 — Trust/Evaluation Agent & Reporting Agent
 *주차: 3~4주차 | 담당: 팀원 C*
 
 **Goal:** 핵심 AI 스펙 매칭 엔진 구현 — 스펙 교차 검증 및 리포트 생성
 
 **Plans:**
 1. **Evaluation Agent 구현**
-   - LlamaIndex RAG로 원본 자재 스펙 추출
-   - 조달청 후보 부품과 1:1 스펙 비교 프롬프트 설계
+   - 자재 마스터에서 원본 자재 스펙 추출
+   - 웹 후보 부품과 1:1 스펙 비교 프롬프트 설계
    - 단위 변환기 Tool 구현 (mm ↔ inch 등)
-   - 호환 점수(0-100) 산출 로직
+   - 호환 점수와 출처 신뢰도 점수 산출 로직
    - Hallucination 제어: 환각 발생률 < 5% 목표
 
 2. **Reporting Agent 구현**
    - JsonOutputParser 기반 엄격한 출력 포맷 강제
-   - 스펙 비교표 + 호환 점수 + 추천 사유 JSON 구조 설계
+   - 스펙 비교표 + 호환 점수 + 출처 신뢰도 + 추천 사유 JSON 구조 설계
 
 3. **Safety Gate 구현**
-   - 호환 점수 80점 미만 시 "대안 없음" 알림 로직
+   - 호환 점수 또는 출처 신뢰도 기준 미달 시 "검토 필요" 알림 로직
    - 인간 개입 요청 State 업데이트
 
 **Deliverables:**
@@ -163,7 +176,7 @@
 
 | Phase | Name | 주차 | 담당 | Requirements |
 |-------|------|------|------|-------------|
-| 1 | Data Layer & Monitor Agent | 1~2주 | 팀원 A | DATA-01~05, MON-01~04 |
+| 1 | Mock Data Layer & Monitor Agent | 1~2주 | 팀원 A | DATA-01~05, MON-01~04 |
 | 2 | Search Agent | 2~3주 | 팀원 B | SRCH-01~05 |
 | 3 | Evaluation & Reporting Agent | 3~4주 | 팀원 C | EVAL-01~06, RPT-01~03 |
 | 4 | LangGraph 파이프라인 통합 | 4~5주 | 팀원 D | ORCH-01~05 |
@@ -173,9 +186,9 @@
 
 ```
 Orchestration   : LangChain / LangGraph
-Vector DB (RAG) : LlamaIndex
+Knowledge Base   : 웹 검색 결과 캐시 + 선택적 Vector DB
 LLM             : OpenAI GPT-4o (Evaluation) + GPT-4o-mini (Search)
-Mock DB         : SQLite + Pydantic
+Mock Data       : CSV or SQLite + Pydantic
 UI              : Streamlit
 Language        : Python 3.11+
 ```

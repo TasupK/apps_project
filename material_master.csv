@@ -6,3 +6,6 @@ MAT-2001,Motor,Industrial AC Motor 5HP. 1800 RPM. 3-phase 460V. Frame size 184T.
 MAT-2002,Motor,Industrial AC Motor 5HP. 1750 RPM. 3-phase 460V. Frame size 184T. Aluminum body. High efficiency.
 MAT-3001,Fastener,Hex head bolt M10 thread pitch 1.5 length 50mm. Stainless steel 304.
 MAT-3002,Fastener,Hex head bolt M10 thread pitch 1.5 length 55mm. Stainless steel 316. High corrosion resistance.
+MAT-3003,Fastener,SUS304 Hex head bolt M10-1.5x50.
+MAT-3004,Fastener,SUS316 cap screw M10-1.5x50. High corrosion resistance.
+MAT-3005,Fastener,Hex socket bolt M10 pitch 1.5 length 50mm. Stainless steel 304.

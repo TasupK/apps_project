@@ -1,6 +1,9 @@
-MATERIAL_ID,VENDOR_ID,VENDOR_NAME,UNIT_PRICE_KRW,LEAD_TIME_DAYS,RELIABILITY_SCORE_PERCENT,LOCATION
-MAT-1002,V-001,Seoul Bearings Co.,15000,1,98,Domestic
-MAT-1002,V-002,Global Parts Inc.,9000,14,92,Overseas
-MAT-2002,V-003,Korea Motors,450000,3,95,Domestic
-MAT-2002,V-004,Euro Drives GmbH,380000,21,99,Overseas
-MAT-3002,V-005,Fastener Tech,200,2,96,Domestic
+MATERIAL_ID,CANDIDATE_ID,VENDOR_NAME,UNIT_PRICE_KRW,LEAD_TIME_DAYS,LOCATION,SOURCE_TYPE,SOURCE_URL,PRICE_LISTED,STOCK_LISTED,LEADTIME_LISTED,SPEC_EVIDENCE,TECH_COMPATIBILITY_PERCENT,SOURCE_RELIABILITY_SCORE,FINAL_SCORE,VALIDATION_STATUS,RISK_NOTE
+MAT-1002,WEB-001,Seoul Bearings Co.,15000,1,Domestic,Official distributor,https://example.com/seoul-bearings/6204-2rs,TRUE,TRUE,TRUE,Manufacturer datasheet includes ID 20mm OD 47mm width 14mm steel 6204 series.,94,91,92,Conditional approval,ZZ shield to 2RS rubber seal change needs field confirmation for heat/friction conditions.
+MAT-1002,WEB-002,Global Parts Inc.,9000,14,Overseas,Marketplace,https://example.com/global-parts/6204-2rs,TRUE,TRUE,TRUE,Product page lists 6204-2RS dimensions but no official datasheet attached.,90,72,78,Review required,Lower price but overseas lead time is too long for urgent shortage.
+MAT-2002,WEB-003,Korea Motors,450000,3,Domestic,Official distributor,https://example.com/korea-motors/5hp-1750rpm,TRUE,TRUE,TRUE,Datasheet lists 5HP 3-phase 460V frame 184T with 1750 RPM rating.,88,89,87,Review required,RPM differs from original 1800 RPM and must be checked against process tolerance.
+MAT-2002,WEB-004,Euro Drives GmbH,380000,21,Overseas,Manufacturer page,https://example.com/euro-drives/5hp-motor,TRUE,FALSE,TRUE,Manufacturer page confirms voltage and frame but live stock is not available.,86,82,74,Not recommended,Lead time and stock uncertainty make this weak for urgent procurement.
+MAT-3002,WEB-005,Fastener Tech,200,2,Domestic,Official distributor,https://example.com/fastener-tech/m10x55-sus316,TRUE,TRUE,TRUE,Spec table confirms M10 pitch 1.5 length 55mm stainless 316.,87,88,84,Review required,Length and material differ from M10x50 SUS304; engineering approval required.
+MAT-3003,WEB-006,MISUMI Korea,220,1,Domestic,Official distributor,https://example.com/misumi/m10-1-5x50-sus304,TRUE,TRUE,TRUE,Official product table confirms M10 pitch 1.5 length 50mm SUS304 with stock and lead time.,99,95,96,Recommended,Same diameter pitch length and material as original fastener.
+MAT-3004,WEB-007,Daara Precision,260,2,Domestic,Industrial marketplace,https://example.com/daara/m10-1-5x50-sus316,TRUE,TRUE,TRUE,Industrial supplier page lists M10 pitch 1.5 length 50mm SUS316 and datasheet-like specification table.,95,86,88,Conditional approval,SUS316 is an upgrade from SUS304 but buyer should confirm cost and corrosion requirements.
+MAT-3005,WEB-008,Open Market Seller,180,1,Domestic,Marketplace,https://example.com/market/m10x50-sus304,TRUE,FALSE,FALSE,Short product title only: M10x50 SUS304 bolt. No official datasheet stock table or lead time evidence.,90,38,71,Review required,Specification appears similar but source evidence is weak.
