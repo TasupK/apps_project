@@ -38,9 +38,12 @@ Phase 2는 구매 담당자가 하던 웹 검색 업무를 자동화하는 구�
 | --- | --- |
 | Phase 1 입력 (실제) | output/shortage_event.json |
 | Phase 1 입력 (Mock) | .planning/phase-2/shortage_event.sample.json |
+| Phase 3 연동 입력 (Mock) | .planning/phase-2/fastener_shortage_event.sample.json |
 | Mock 후보 캐시 | .planning/phase-2/mock_candidates.csv |
 | Phase 2 출력 | output/candidate_results.json |
+| Phase 2 출력 (Phase 3 연동 검증) | output/candidate_results.fastener.json |
 | Phase 2 출력 (샘플) | .planning/phase-2/candidate_results.sample.json |
+| Phase 2 출력 (Phase 3 연동 샘플) | .planning/phase-2/candidate_results.fastener.sample.json |
 
 ## 검색 쿼리 예시
 
@@ -142,6 +145,12 @@ Phase 1 출력 연동:
 python3 agents/web_research_agent.py --input output/shortage_event.json --output output/candidate_results.json
 ```
 
+Phase 3 fastener 평가 흐름 검증:
+
+```bash
+python3 agents/web_research_agent.py --input .planning/phase-2/fastener_shortage_event.sample.json --output output/candidate_results.fastener.json
+```
+
 결과 확인:
 
 ```bash
@@ -164,6 +173,15 @@ python3 agents/web_research_agent.py --mock-input --output output/candidate_resu
 | WEB-002 | Global Parts Inc. | marketplace | Yes | 14일 |
 | WEB-003 | Korea Industrial | official_distributor | Yes | 3일 |
 | WEB-004 | Quick Supply | marketplace | No | 5일 |
+
+Phase 3 연동 검증용으로는 원본 부족 자재 `MAT-3001`에 대해 fastener 후보 4개도 반환한다. 이 데이터는 Phase 3의 현재 평가 도메인과 맞춰 둔 happy path 샘플이다.
+
+| Candidate ID | Candidate Material | Source Type | Phase 3 Expected Decision |
+| --- | --- | --- | --- |
+| WEB-005 | MAT-3002 | official_distributor | reject |
+| WEB-006 | MAT-3003 | official_distributor | recommend |
+| WEB-007 | MAT-3004 | industrial_marketplace | conditional_approve |
+| WEB-008 | MAT-3005 | marketplace | review_required |
 
 ## 완료 기준
 
