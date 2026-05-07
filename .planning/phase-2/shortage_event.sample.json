@@ -1,0 +1,19 @@
+{
+  "event_id": "SE-20260502-0001",
+  "status": "SHORTAGE_DETECTED",
+  "material_id": "MAT-1001",
+  "material_name": "Ball Bearing 6204-ZZ",
+  "category": "Bearing",
+  "plant": "P100",
+  "current_stock": 10,
+  "safety_stock": 50,
+  "shortage_qty": 40,
+  "technical_specification": "Deep groove ball bearing 6204-ZZ. Shielded metal on both sides. Inner diameter 20mm outer diameter 47mm width 14mm. Steel material. Max RPM 10000. Operating temp -20C to 120C.",
+  "search_keywords": [
+    "Ball Bearing 6204-ZZ",
+    "20mm 47mm 14mm",
+    "steel",
+    "replacement"
+  ],
+  "detected_at": "2026-05-02T15:00:00+09:00"
+}

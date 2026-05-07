@@ -8,10 +8,10 @@
 
 Phase 2는 구매 담당자가 하던 웹 검색 업무를 자동화하는 구간이다. 실제 웹 검색이 불안정할 수 있으므로, 데모에서는 mock 후보 캐시를 항상 사용할 수 있게 유지하고 실제 검색 로직은 확장 가능한 형태로 만든다.
 
-- 포맷 기준 문서: Phase 2 Format Contract (작성 예정)
+- 포맷 기준 문서: [Phase 2 Format Contract](PHASE_2_FORMAT_CONTRACT.md)
 - Phase 1 입력 계약: `.planning/phase-1/PHASE_1_FORMAT_CONTRACT.md`
-- Phase 3 출력 계약: Phase 2 to Phase 3 Contract (작성 예정)
-- MVP 제한사항: Phase 2 Known Limits (작성 예정)
+- Phase 3 출력 계약: [Phase 2 to Phase 3 Contract](PHASE_2_TO_PHASE_3_CONTRACT.md)
+- MVP 제한사항: [Phase 2 Known Limits](PHASE_2_KNOWN_LIMITS.md)
 
 ## 작업 범위
 
@@ -55,7 +55,7 @@ Ball Bearing 6204-ZZ 20mm 47mm 14mm steel replacement
 ```json
 {
   "search_id": "SR-20260502-001",
-  "material_id": "MAT-1002",
+  "material_id": "MAT-1001",
   "material_name": "Ball Bearing 6204-ZZ",
   "target_spec_text": "Deep groove ball bearing 6204-ZZ. Shielded metal on both sides. Inner diameter 20mm outer diameter 47mm width 14mm. Steel material.",
   "searched_at": "2026-05-02T15:30:00+09:00",
@@ -63,6 +63,7 @@ Ball Bearing 6204-ZZ 20mm 47mm 14mm steel replacement
   "candidates": [
     {
       "candidate_id": "WEB-001",
+      "candidate_material_id": "MAT-1002",
       "vendor_name": "Seoul Bearings Co.",
       "price_krw": 15000,
       "min_price_krw": 15000,
@@ -81,15 +82,18 @@ Ball Bearing 6204-ZZ 20mm 47mm 14mm steel replacement
 }
 ```
 
-상세 필드 정의는 Phase 2 Format Contract를 따른다.
+상세 필드 정의는 [Phase 2 Format Contract](PHASE_2_FORMAT_CONTRACT.md)를 따른다.
 
 ## Phase 3 연동 기준
 
 Phase 3는 후보 검색을 직접 수행하지 않고 Phase 2가 넘긴 후보를 평가한다. 따라서 Phase 2 출력은 아래 필드를 반드시 포함한다.
 
+Phase 2 출력의 root `material_id`는 Phase 1에서 감지된 부족 원본 자재 ID를 유지한다. 후보 대체품의 내부 자재 ID가 있는 경우에는 후보 객체 안의 `candidate_material_id`에 저장한다. 이 규칙을 지켜야 Phase 3가 원본 자재와 후보 자재를 혼동하지 않는다.
+
 | Field | Type | Required | Phase 3 사용 목적 |
 | --- | --- | ---: | --- |
 | candidate_id | string | Yes | 후보 식별 |
+| candidate_material_id | string or null | Yes | 후보 자재 코드가 있을 때 식별 |
 | vendor_name | string | Yes | 평가 리포트 표시 |
 | source_url | string or null | Yes | 출처 신뢰도 평가 |
 | source_type | enum | Yes | 출처 신뢰도 평가 |
@@ -152,22 +156,23 @@ python3 agents/web_research_agent.py --mock-input --output output/candidate_resu
 
 ## 현재 Mock 데모 결과
 
-현재 mock 데이터에서는 MAT-1002 자재에 대해 4개 후보를 반환한다.
+현재 mock 데이터에서는 원본 부족 자재 `MAT-1001`에 대해 후보 자재 `MAT-1002` 계열의 4개 후보를 반환한다.
 
 | Candidate ID | Vendor | Source Type | Price Listed | Lead Time |
 | --- | --- | --- | --- | --- |
 | WEB-001 | Seoul Bearings Co. | official_distributor | Yes | 1일 |
-| WEB-002 | Global Parts Inc. | marketplace | Yes | 7일 |
+| WEB-002 | Global Parts Inc. | marketplace | Yes | 14일 |
 | WEB-003 | Korea Industrial | official_distributor | Yes | 3일 |
 | WEB-004 | Quick Supply | marketplace | No | 5일 |
 
 ## 완료 기준
 
 - 최소 2개 이상의 후보를 같은 포맷으로 반환한다.
-- 각 후보에 source_url과 source_type이 포함된다.
+- 각 후보에 source_url과 source_type이 포함된다. URL이 없으면 `source_url: null`로 저장하되, Phase 3에는 낮은 출처 신뢰도 후보로 전달한다.
 - 가격, 납기, 재고 정보의 존재 여부가 boolean으로 표시된다.
 - 실제 검색 실패 시에도 mock 데이터로 데모가 가능하다.
 - Phase 3가 바로 평가할 수 있도록 `price_krw`, `lead_time_days`, `source_type`, `source_url`, `spec_text` 필드가 고정된다.
+- root `material_id`는 Phase 1 부족 자재 ID이며, 후보 자재 ID는 `candidate_material_id`로 분리된다.
 - `source_type` 값은 Phase 3가 사용하는 snake_case enum을 따른다.
 - Phase 1 입력 샘플만으로 독립 실행이 가능하다.
 
