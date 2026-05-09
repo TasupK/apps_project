@@ -1,0 +1,79 @@
+{
+  "workflow_id": "WF-20260506-001",
+  "status": "APPROVAL_PENDING",
+  "shortage_event": {
+    "material_id": "BT-H-M10-50",
+    "description": "Hex bolt M10x50",
+    "current_stock": 12,
+    "minimum_stock": 100,
+    "shortage_qty": 88,
+    "detected_at": "2026-05-06T09:00:00Z"
+  },
+  "candidate_results": [
+    {
+      "candidate_id": "WEB-001",
+      "vendor_name": "MISUMI Korea",
+      "source_url": "https://example.com/item/123",
+      "price_krw": 450,
+      "lead_time_days": 1,
+      "moq": 10
+    }
+  ],
+  "evaluation_report_batch": {
+    "batch_report_id": "BER-20260504-001",
+    "generated_at": "2026-05-04T14:30:00+09:00",
+    "mode": "urgent",
+    "candidate_count": 1,
+    "decision_counts": {
+      "recommend": 1,
+      "conditional_approve": 0,
+      "review_required": 0,
+      "reject": 0
+    },
+    "top_candidate_id": "WEB-001",
+    "next_action": "approval_pending",
+    "items": [
+      {
+        "report_id": "ER-20260504-001",
+        "generated_at": "2026-05-04T14:30:00+09:00",
+        "mode": "urgent",
+        "candidate_material": {
+          "candidate_id": "WEB-001",
+          "vendor_name": "MISUMI Korea",
+          "source_url": "https://example.com/item/123",
+          "price_krw": 450,
+          "lead_time_days": 1,
+          "moq": 10
+        },
+        "scores": {
+          "final_score": 87
+        },
+        "source_trust_breakdown": {
+          "is_official_distributor": true,
+          "has_traceable_url": true
+        },
+        "source_trust_notes": {
+          "summary": "공식 유통사, 출처 신뢰도 높음",
+          "positive_factors": ["공식 대리점 확인됨"],
+          "risk_factors": []
+        },
+        "decision_context": {
+          "decision": "recommend",
+          "risk_level": "low",
+          "recommendation_reason": "스펙 일치, 리드타임 1일로 긴급 조달 적합",
+          "approval_conditions": [],
+          "rejection_reason": null
+        }
+      }
+    ]
+  },
+  "selected_candidate_id": "WEB-001",
+  "retry_count": 0,
+  "approval": {
+    "required": true,
+    "approved": null,
+    "approver": null,
+    "approved_at": null
+  },
+  "po_draft": null
+}

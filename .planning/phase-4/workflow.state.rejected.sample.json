@@ -1,0 +1,37 @@
+{
+  "workflow_id": "WF-20260506-002",
+  "status": "REJECTED",
+  "shortage_event": {
+    "material_id": "BT-H-M10-50",
+    "description": "Hex bolt M10x50",
+    "current_stock": 12,
+    "minimum_stock": 100,
+    "shortage_qty": 88,
+    "detected_at": "2026-05-06T09:00:00Z"
+  },
+  "candidate_results": [],
+  "evaluation_report_batch": {
+    "batch_report_id": "BER-20260504-002",
+    "generated_at": "2026-05-04T14:30:00+09:00",
+    "mode": "urgent",
+    "candidate_count": 0,
+    "decision_counts": {
+      "recommend": 0,
+      "conditional_approve": 0,
+      "review_required": 0,
+      "reject": 1
+    },
+    "top_candidate_id": null,
+    "next_action": "no_viable_candidate",
+    "items": []
+  },
+  "selected_candidate_id": null,
+  "retry_count": 1,
+  "approval": {
+    "required": false,
+    "approved": null,
+    "approver": null,
+    "approved_at": null
+  },
+  "po_draft": null
+}
