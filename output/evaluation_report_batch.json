@@ -1,6 +1,6 @@
 {
-  "batch_report_id": "BER-20260504-161712",
-  "generated_at": "2026-05-04T16:17:12+09:00",
+  "batch_report_id": "BER-20260510-160010",
+  "generated_at": "2026-05-10T16:00:10+09:00",
   "mode": "urgent",
   "candidate_count": 4,
   "decision_counts": {
@@ -13,12 +13,12 @@
   "next_action": "approval_pending",
   "items": [
     {
-      "report_id": "ER-20260504-161712",
-      "generated_at": "2026-05-04T16:17:12+09:00",
+      "report_id": "ER-20260510-160010",
+      "generated_at": "2026-05-10T16:00:10+09:00",
       "mode": "urgent",
       "target_material": {
         "material_id": "MAT-3001",
-        "description": "MAT-3001",
+        "description": "Hex Bolt M10x50",
         "spec": {
           "diameter": "M10",
           "pitch": "1.5",
@@ -55,11 +55,11 @@
       },
       "scores": {
         "compatibility_score": 100,
-        "source_trust_score": 90,
+        "source_trust_score": 100,
         "lead_time_score": 100,
         "price_score": 82,
         "moq_score": 70,
-        "final_score": 96
+        "final_score": 97
       },
       "source_trust_breakdown": {
         "official_distributor": true,
@@ -90,12 +90,12 @@
       }
     },
     {
-      "report_id": "ER-20260504-161712",
-      "generated_at": "2026-05-04T16:17:12+09:00",
+      "report_id": "ER-20260510-160010",
+      "generated_at": "2026-05-10T16:00:10+09:00",
       "mode": "urgent",
       "target_material": {
         "material_id": "MAT-3001",
-        "description": "MAT-3001",
+        "description": "Hex Bolt M10x50",
         "spec": {
           "diameter": "M10",
           "pitch": "1.5",
@@ -139,7 +139,7 @@
       },
       "scores": {
         "compatibility_score": 88,
-        "source_trust_score": 78,
+        "source_trust_score": 88,
         "lead_time_score": 85,
         "price_score": 69,
         "moq_score": 70,
@@ -153,7 +153,7 @@
         "leadtime_visible": true
       },
       "source_trust_notes": {
-        "summary": "출처 신뢰도는 보통 수준이며 주요 표시 정보 확인이 필요합니다.",
+        "summary": "출처 신뢰도가 높아 자동 추천 근거로 사용할 수 있습니다.",
         "positive_factors": [
           "출처 유형이 '산업재 전문몰'로 분류되었습니다.",
           "규격 근거 텍스트가 충분하여 스펙 확인 가능성이 높습니다.",
@@ -177,12 +177,12 @@
       }
     },
     {
-      "report_id": "ER-20260504-161712",
-      "generated_at": "2026-05-04T16:17:12+09:00",
+      "report_id": "ER-20260510-160010",
+      "generated_at": "2026-05-10T16:00:10+09:00",
       "mode": "urgent",
       "target_material": {
         "material_id": "MAT-3001",
-        "description": "MAT-3001",
+        "description": "Hex Bolt M10x50",
         "spec": {
           "diameter": "M10",
           "pitch": "1.5",
@@ -219,11 +219,11 @@
       },
       "scores": {
         "compatibility_score": 100,
-        "source_trust_score": 30,
+        "source_trust_score": 40,
         "lead_time_score": 100,
         "price_score": 100,
         "moq_score": 70,
-        "final_score": 95
+        "final_score": 96
       },
       "source_trust_breakdown": {
         "official_distributor": false,
@@ -255,12 +255,12 @@
       }
     },
     {
-      "report_id": "ER-20260504-161712",
-      "generated_at": "2026-05-04T16:17:12+09:00",
+      "report_id": "ER-20260510-160010",
+      "generated_at": "2026-05-10T16:00:10+09:00",
       "mode": "urgent",
       "target_material": {
         "material_id": "MAT-3001",
-        "description": "MAT-3001",
+        "description": "Hex Bolt M10x50",
         "spec": {
           "diameter": "M10",
           "pitch": "1.5",
@@ -310,11 +310,11 @@
       },
       "scores": {
         "compatibility_score": 0,
-        "source_trust_score": 90,
+        "source_trust_score": 100,
         "lead_time_score": 85,
         "price_score": 90,
         "moq_score": 70,
-        "final_score": 42
+        "final_score": 43
       },
       "source_trust_breakdown": {
         "official_distributor": true,

@@ -31,6 +31,18 @@ Phase 3는 범용 나사/볼트 후보 자재를 평가하는 AI 평가 리포�
 python3 agents/evaluation_agent.py --batch --output output/evaluation_report_batch.json
 ```
 
+### Evaluate Phase 2 Candidate Results
+
+```bash
+python3 agents/evaluation_agent.py --candidate-results output/candidate_results.json --output output/evaluation_report_batch.json
+```
+
+Fastener integration sample:
+
+```bash
+python3 agents/evaluation_agent.py --candidate-results output/candidate_results.fastener.json --output output/evaluation_report_batch.json
+```
+
 ### Run Tests
 
 ```bash
@@ -85,6 +97,7 @@ Phase 4는 Phase 3의 점수를 다시 계산하지 않는다. 승인 메시지�
 |---|---|
 | Phase 1 | 실제 fastener 재질 목록과 표면처리/도금 정보를 제공할 수 있는가? |
 | Phase 2 | 후보 데이터 컬럼명이 현재 `vendor_sourcing.csv` 구조와 맞는가? |
+| Phase 2 | live search 결과에서 가격/납기/MOQ가 `null`일 수 있음을 유지하고 추측값을 넣지 않는가? |
 | Phase 4 | `approval_pending`, `manual_review`, `no_viable_candidate` 라우팅을 공용 계약 기준으로 구현할 수 있는가? |
 | Phase 5 | 승인 후 PO draft에 필요한 필드가 batch report에 충분한가? |
 

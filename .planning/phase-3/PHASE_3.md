@@ -78,6 +78,18 @@ python3 agents/evaluation_agent.py --csv-demo --output output/evaluation_report.
 python3 agents/evaluation_agent.py --batch --output output/evaluation_report_batch.json
 ```
 
+Phase 2의 live search 산출물을 직접 평가하려면 `--candidate-results`를 사용한다.
+
+```bash
+python3 agents/evaluation_agent.py --candidate-results output/candidate_results.json --output output/evaluation_report_batch.json
+```
+
+Phase 2 fastener 연동 샘플로 검증하려면 아래 명령을 사용한다.
+
+```bash
+python3 agents/evaluation_agent.py --candidate-results output/candidate_results.fastener.json --output output/evaluation_report_batch.json
+```
+
 Phase 4로 넘기는 공식 산출물은 단일 후보 리포트가 아니라 batch 리포트다. 상세 필드와 상태값은 공용 계약 문서인 [Phase 3 to Phase 4 Contract](../shared/contracts/phase3_to_phase4_contract.md)를 따른다.
 
 샘플 리포트를 콘솔에도 같이 보고 싶으면 아래 명령을 사용한다.
@@ -93,6 +105,8 @@ python3 agents/evaluation_agent.py --csv-demo --output output/evaluation_report.
 | 부족 이벤트 mock | `.planning/phase-3/fastener_shortage_event.sample.json` |
 | 자재 마스터 | `material_master.csv` |
 | 후보/공급처 mock | `vendor_sourcing.csv` |
+| Phase 2 후보 결과 | `output/candidate_results.json` |
+| Phase 2 fastener 후보 샘플 | `output/candidate_results.fastener.json` |
 | 평가 리포트 산출물 | `output/evaluation_report.json` |
 | Batch 평가 리포트 산출물 | `output/evaluation_report_batch.json` |
 

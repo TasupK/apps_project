@@ -1,9 +1,11 @@
+import json
 import unittest
 from pathlib import Path
 from tempfile import TemporaryDirectory
 
 from agents.evaluation_agent import (
     build_batch_report,
+    evaluate_candidates_from_phase2_results,
     evaluate_fastener_candidate,
     evaluate_fastener_candidates_from_csv,
     load_fastener_inputs_from_csv,
@@ -35,6 +37,8 @@ TARGET = {
     "description": "Hex bolt",
     "spec_text": "Hex head bolt M10 thread pitch 1.5 length 50mm. Stainless steel 304.",
 }
+
+PHASE2_FASTENER_RESULTS = Path(__file__).resolve().parents[1] / "output" / "candidate_results.fastener.json"
 
 
 class Phase3EvaluationTests(unittest.TestCase):
@@ -191,6 +195,55 @@ class Phase3EvaluationTests(unittest.TestCase):
         self.assertEqual(decisions["WEB-007"], "conditional_approve")
         self.assertEqual(decisions["WEB-008"], "review_required")
         self.assertEqual(decisions["WEB-005"], "reject")
+
+    def test_evaluate_candidates_from_phase2_fastener_results(self):
+        batch = evaluate_candidates_from_phase2_results(PHASE2_FASTENER_RESULTS)
+        self.assertEqual(batch["candidate_count"], 4)
+        self.assertEqual(batch["next_action"], "approval_pending")
+        self.assertEqual(batch["top_candidate_id"], "WEB-006")
+        decisions = {
+            item["candidate_material"]["candidate_id"]: item["decision_context"]["decision"]
+            for item in batch["items"]
+        }
+        self.assertEqual(decisions["WEB-006"], "recommend")
+        self.assertEqual(decisions["WEB-007"], "conditional_approve")
+        self.assertEqual(decisions["WEB-008"], "review_required")
+        self.assertEqual(decisions["WEB-005"], "reject")
+
+    def test_phase2_results_with_null_commercial_fields_do_not_crash(self):
+        candidate_results = {
+            "material_id": "MAT-3001",
+            "material_name": "Hex Bolt M10x50",
+            "target_spec_text": TARGET["spec_text"],
+            "candidates": [
+                {
+                    "candidate_id": "LIVE-NULL",
+                    "candidate_material_id": None,
+                    "vendor_name": "Unknown Seller",
+                    "price_krw": None,
+                    "min_price_krw": None,
+                    "lead_time_days": None,
+                    "moq": None,
+                    "location": "Unknown",
+                    "source_type": "unknown",
+                    "source_url": None,
+                    "price_listed": False,
+                    "stock_listed": False,
+                    "leadtime_listed": False,
+                    "spec_text": "Hex head bolt M10 thread pitch 1.5 length 50mm. Stainless steel 304.",
+                    "spec_evidence": "Search result snippet only.",
+                }
+            ],
+        }
+        with TemporaryDirectory() as temp_dir:
+            path = Path(temp_dir) / "candidate_results.json"
+            path.write_text(json.dumps(candidate_results, ensure_ascii=False), encoding="utf-8")
+            batch = evaluate_candidates_from_phase2_results(path)
+        item = batch["items"][0]
+        self.assertEqual(item["candidate_material"]["price_krw"], None)
+        self.assertEqual(item["candidate_material"]["lead_time_days"], None)
+        self.assertEqual(item["scores"]["price_score"], 40)
+        self.assertEqual(item["scores"]["lead_time_score"], 35)
 
 
 if __name__ == "__main__":

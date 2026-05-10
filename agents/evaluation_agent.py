@@ -22,6 +22,7 @@ PROJECT_ROOT = Path(__file__).resolve().parents[1]
 DEFAULT_FASTENER_SHORTAGE_EVENT = PROJECT_ROOT / ".planning" / "phase-3" / "fastener_shortage_event.sample.json"
 DEFAULT_MATERIAL_MASTER = PROJECT_ROOT / "material_master.csv"
 DEFAULT_VENDOR_SOURCING = PROJECT_ROOT / "vendor_sourcing.csv"
+DEFAULT_CANDIDATE_RESULTS = PROJECT_ROOT / "output" / "candidate_results.json"
 DEFAULT_OUTPUT = PROJECT_ROOT / "output" / "evaluation_report.json"
 DEFAULT_BATCH_OUTPUT = PROJECT_ROOT / "output" / "evaluation_report_batch.json"
 
@@ -91,6 +92,12 @@ def _bool(raw: str | bool | None) -> bool:
     if isinstance(raw, bool):
         return raw
     return str(raw).strip().upper() == "TRUE"
+
+
+def _optional_int(raw: object) -> int | None:
+    if raw is None or raw == "":
+        return None
+    return int(raw)
 
 
 def _material_decision(original: str | None, candidate: str | None) -> tuple[str, str, str]:
@@ -172,7 +179,7 @@ def _source_trust_breakdown(candidate: dict) -> tuple[dict, int, dict]:
     score += 20 if breakdown["stock_visible"] else 0
     score += 20 if breakdown["price_visible"] else 0
     score += 20 if breakdown["leadtime_visible"] else 0
-    score += 10 if candidate.get("SOURCE_URL") else 0
+    score += 10 if candidate.get("source_url") or candidate.get("SOURCE_URL") else 0
     score = min(score, 100)
     return breakdown, score, _source_trust_notes(source_meta["label"], breakdown, score)
 
@@ -215,7 +222,9 @@ def _source_trust_notes(source_label: str, breakdown: dict, score: int) -> dict:
     }
 
 
-def _lead_time_score(days: int) -> int:
+def _lead_time_score(days: int | None) -> int:
+    if days is None:
+        return 35
     if days <= 1:
         return 100
     if days <= 3:
@@ -227,9 +236,9 @@ def _lead_time_score(days: int) -> int:
     return 20
 
 
-def _price_score(price: int, min_price: int) -> int:
-    if price <= 0:
-        return 0
+def _price_score(price: int | None, min_price: int | None) -> int:
+    if price is None or min_price is None or price <= 0 or min_price <= 0:
+        return 40
     return round((min_price / price) * 100)
 
 
@@ -320,8 +329,8 @@ def evaluate_fastener_candidate(
     scores = {
         "compatibility_score": _compatibility_score(critical_check, material_decision[0]),
         "source_trust_score": source_trust_score,
-        "lead_time_score": _lead_time_score(int(candidate_material["lead_time_days"])),
-        "price_score": _price_score(int(candidate_material["price_krw"]), int(candidate_material["min_price_krw"])),
+        "lead_time_score": _lead_time_score(candidate_material["lead_time_days"]),
+        "price_score": _price_score(candidate_material["price_krw"], candidate_material["min_price_krw"]),
         "moq_score": _moq_score(candidate_material.get("moq")),
     }
     scores["final_score"] = _weighted_total(scores, mode)
@@ -342,8 +351,8 @@ def evaluate_fastener_candidate(
             "vendor_name": candidate_material["vendor_name"],
             "source_url": candidate_material["source_url"],
             "source_type": _snake_source_type(candidate_material["source_type"]),
-            "price_krw": int(candidate_material["price_krw"]),
-            "lead_time_days": int(candidate_material["lead_time_days"]),
+            "price_krw": candidate_material["price_krw"],
+            "lead_time_days": candidate_material["lead_time_days"],
             "moq": candidate_material.get("moq"),
             "spec": asdict(candidate_spec),
         },
@@ -438,6 +447,32 @@ def _candidate_from_context(
     }
 
 
+def _target_from_candidate_results(candidate_results: dict) -> dict:
+    return {
+        "material_id": candidate_results["material_id"],
+        "description": candidate_results["material_name"],
+        "spec_text": candidate_results["target_spec_text"],
+    }
+
+
+def _candidate_from_phase2_result(candidate: dict, min_price: int | None) -> dict:
+    return {
+        "candidate_id": candidate["candidate_id"],
+        "vendor_name": candidate["vendor_name"],
+        "source_url": candidate.get("source_url"),
+        "source_type": candidate.get("source_type") or "unknown",
+        "price_krw": _optional_int(candidate.get("price_krw")),
+        "min_price_krw": min_price,
+        "lead_time_days": _optional_int(candidate.get("lead_time_days")),
+        "moq": _optional_int(candidate.get("moq")),
+        "spec_text": candidate["spec_text"],
+        "SPEC_EVIDENCE": candidate.get("spec_evidence", ""),
+        "PRICE_LISTED": candidate.get("price_listed", False),
+        "STOCK_LISTED": candidate.get("stock_listed", False),
+        "LEADTIME_LISTED": candidate.get("leadtime_listed", False),
+    }
+
+
 def load_fastener_inputs_from_csv(
     shortage_event_path: Path = DEFAULT_FASTENER_SHORTAGE_EVENT,
     material_master_path: Path = DEFAULT_MATERIAL_MASTER,
@@ -519,10 +554,34 @@ def evaluate_fastener_candidates_from_csv(
     return build_batch_report(reports, mode)
 
 
+def evaluate_candidates_from_phase2_results(
+    candidate_results_path: Path = DEFAULT_CANDIDATE_RESULTS,
+    mode: str = "urgent",
+) -> dict:
+    candidate_results = json.loads(candidate_results_path.read_text(encoding="utf-8"))
+    candidates = candidate_results.get("candidates", [])
+    if not candidates:
+        return build_batch_report([], mode)
+
+    target = _target_from_candidate_results(candidate_results)
+    known_prices = [
+        int(candidate["price_krw"])
+        for candidate in candidates
+        if candidate.get("price_krw") not in {None, ""}
+    ]
+    min_price = min(known_prices) if known_prices else None
+    reports = [
+        evaluate_fastener_candidate(target, _candidate_from_phase2_result(candidate, min_price), mode=mode)
+        for candidate in candidates
+    ]
+    return build_batch_report(reports, mode)
+
+
 def build_argument_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description="Run Phase 3 fastener evaluation.")
     parser.add_argument("--csv-demo", action="store_true", help="Use CSV and Phase 3 fastener sample event inputs.")
     parser.add_argument("--batch", action="store_true", help="Evaluate all CSV fastener candidates and write a batch report.")
+    parser.add_argument("--candidate-results", type=Path, help="Evaluate Phase 2 candidate_results.json output.")
     parser.add_argument("--mode", choices=sorted(WEIGHTS), default="urgent", help="Scoring mode.")
     parser.add_argument("--output", type=Path, default=DEFAULT_OUTPUT, help="Evaluation report JSON output path.")
     parser.add_argument("--print", action="store_true", dest="print_report", help="Also print the report to stdout.")
@@ -531,7 +590,9 @@ def build_argument_parser() -> argparse.ArgumentParser:
 
 def main() -> None:
     args = build_argument_parser().parse_args()
-    if args.batch:
+    if args.candidate_results:
+        report = evaluate_candidates_from_phase2_results(args.candidate_results, mode=args.mode)
+    elif args.batch:
         report = evaluate_fastener_candidates_from_csv(mode=args.mode)
     elif args.csv_demo:
         target, candidate = load_fastener_inputs_from_csv()
