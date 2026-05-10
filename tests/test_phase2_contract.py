@@ -2,14 +2,14 @@ import json
 import unittest
 from pathlib import Path
 
+import agents.web_research_agent as web_research_agent
 from agents.evaluation_agent import build_batch_report, evaluate_fastener_candidate
 from agents.web_research_agent import (
-    DEFAULT_MOCK_CANDIDATES,
     DEFAULT_SAMPLE_INPUT,
     VALID_SOURCE_TYPES,
     build_candidate_results,
-    load_mock_candidates,
     load_shortage_event,
+    make_search_result,
     validate_candidate_results,
 )
 
@@ -21,6 +21,12 @@ FASTENER_SAMPLE_OUTPUT = PROJECT_ROOT / ".planning" / "phase-2" / "candidate_res
 
 
 class Phase2ContractTests(unittest.TestCase):
+    def setUp(self):
+        self._original_search_web = web_research_agent.search_web
+
+    def tearDown(self):
+        web_research_agent.search_web = self._original_search_web
+
     def test_sample_output_matches_phase2_contract(self):
         report = json.loads(SAMPLE_OUTPUT.read_text(encoding="utf-8"))
         self.assertEqual(validate_candidate_results(report), [])
@@ -30,20 +36,21 @@ class Phase2ContractTests(unittest.TestCase):
         self.assertEqual(validate_candidate_results(report), [])
 
     def test_generated_output_matches_phase2_contract(self):
+        web_research_agent.search_web = _fake_verified_search_web
         shortage_event = load_shortage_event(DEFAULT_SAMPLE_INPUT)
-        report = build_candidate_results(shortage_event, load_mock_candidates(DEFAULT_MOCK_CANDIDATES))
+        report = build_candidate_results(shortage_event, search_mode="live", search_provider="serpapi")
         self.assertEqual(validate_candidate_results(report), [])
 
-    def test_generated_fastener_output_matches_phase2_contract(self):
-        shortage_event = load_shortage_event(FASTENER_SAMPLE_INPUT)
-        report = build_candidate_results(shortage_event, load_mock_candidates(DEFAULT_MOCK_CANDIDATES))
+    def test_generated_fastener_search_without_verified_results_matches_phase2_contract(self):
+        report = build_candidate_results(load_shortage_event(FASTENER_SAMPLE_INPUT), search_mode="live", search_provider="llm_plan")
         self.assertEqual(validate_candidate_results(report), [])
         self.assertEqual(report["material_id"], "MAT-3001")
-        self.assertEqual([candidate["candidate_id"] for candidate in report["candidates"]], ["WEB-005", "WEB-006", "WEB-007", "WEB-008"])
+        self.assertEqual(report["candidates"], [])
 
     def test_source_type_uses_phase3_snake_case_enum(self):
+        web_research_agent.search_web = _fake_verified_search_web
         shortage_event = load_shortage_event(DEFAULT_SAMPLE_INPUT)
-        report = build_candidate_results(shortage_event, load_mock_candidates(DEFAULT_MOCK_CANDIDATES))
+        report = build_candidate_results(shortage_event, search_mode="live", search_provider="serpapi")
         for candidate in report["candidates"]:
             self.assertIn(candidate["source_type"], VALID_SOURCE_TYPES)
             self.assertEqual(candidate["source_type"], candidate["source_type"].lower())
@@ -65,8 +72,7 @@ class Phase2ContractTests(unittest.TestCase):
         self.assertNotEqual(report["material_id"], report["candidates"][0]["candidate_material_id"])
 
     def test_fastener_output_can_flow_into_phase3_evaluation(self):
-        shortage_event = load_shortage_event(FASTENER_SAMPLE_INPUT)
-        phase2_report = build_candidate_results(shortage_event, load_mock_candidates(DEFAULT_MOCK_CANDIDATES))
+        phase2_report = json.loads(FASTENER_SAMPLE_OUTPUT.read_text(encoding="utf-8"))
         target = {
             "material_id": phase2_report["material_id"],
             "description": phase2_report["material_name"],
@@ -105,6 +111,19 @@ def _phase3_candidate_from_phase2(candidate: dict) -> dict:
         "STOCK_LISTED": candidate["stock_listed"],
         "LEADTIME_LISTED": candidate["leadtime_listed"],
     }
+
+
+def _fake_verified_search_web(query: str, provider: str | None = None, max_results: int = 5):
+    return [
+        make_search_result(
+            query=query,
+            title="6204-ZZ Ball Bearing - MISUMI Korea",
+            url="https://example.com/misumi/6204-zz",
+            snippet="20mm ID, 47mm OD, 14mm width, steel bearing.",
+            source_type_hint="official_distributor",
+            verified=True,
+        )
+    ]
 
 
 if __name__ == "__main__":

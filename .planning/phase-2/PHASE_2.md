@@ -1,49 +1,43 @@
 # Phase 2: Web Research Agent & Source Collection
 
-**기간:** 2~3주차  
 **담당:** 팀원 B  
-**목표:** 부족 자재의 스펙을 기반으로 웹 검색 후보를 수집하고, 가격/납기/출처 URL/스펙 증거를 정규화한다.
+**목표:** Phase 1의 부족 자재 이벤트를 입력으로 받아 실제 웹 검색 결과를 수집하고, Phase 3가 평가할 수 있는 `candidate_results.json` 형태로 정규화한다.
 
 ## 핵심 역할
 
-Phase 2는 구매 담당자가 하던 웹 검색 업무를 자동화하는 구간이다. 실제 웹 검색이 불안정할 수 있으므로, 데모에서는 mock 후보 캐시를 항상 사용할 수 있게 유지하고 실제 검색 로직은 확장 가능한 형태로 만든다.
+Phase 2는 구매 담당자가 하던 웹 리서치 업무를 자동화하는 구간이다.
 
-- 포맷 기준 문서: [Phase 2 Format Contract](PHASE_2_FORMAT_CONTRACT.md)
-- Phase 1 입력 계약: `.planning/phase-1/PHASE_1_FORMAT_CONTRACT.md`
-- Phase 3 출력 계약: [Phase 2 to Phase 3 Contract](PHASE_2_TO_PHASE_3_CONTRACT.md)
-- MVP 제한사항: [Phase 2 Known Limits](PHASE_2_KNOWN_LIMITS.md)
+현재 방향은 live search 중심이다. SerpAPI 같은 검색 provider가 실제 URL과 snippet을 가져오고, LLM은 검색 쿼리 생성과 이후 후보 정보 추출을 보조한다. LLM은 실제로 확인되지 않은 URL, 가격, 납기, 재고 정보를 추측해서 후보로 확정하면 안 된다.
 
 ## 작업 범위
 
-- Phase 1의 shortage_event.json 입력 받기
-- 자재 스펙과 검색 키워드 파싱
-- 검색 쿼리 템플릿 생성
-- 제조사, 공식 판매처, 산업재몰, 마켓플레이스 후보 수집
-- 후보별 가격, 납기, 재고 표기 여부, 출처 URL 추출
-- 스펙 증거 문장 또는 표 요약 저장
-- 후보가 없을 경우 검색어 변형 후 재시도
-- 결과를 candidate_results.json 형태로 정규화
-- Phase 3 전달용 표준 포맷 준수 (`price_krw`, `spec_text`, snake_case `source_type` 포함)
+- Phase 1의 `shortage_event.json` 입력 받기
+- 부족 자재 이름, 카테고리, 기술 스펙, `search_keywords` 파싱
+- LLM 또는 deterministic 방식으로 검색 쿼리 후보 생성
+- SerpAPI 같은 검색 provider로 실제 검색 결과 수집
+- 검색 결과의 `title`, `url`, `snippet`을 공통 `SearchResult` 형태로 정규화
+- 실제 URL이 확인된 검색 결과만 후보 stub으로 승격
+- 검증되지 않은 LLM search plan은 Phase 3 후보로 넘기지 않음
+- 후보별 출처 URL, 출처 유형, 스펙 근거 텍스트를 `candidate_results.json` 계약에 맞게 전달
+- 가격, 납기, 재고 수량 등 페이지 본문 추출이 필요한 값은 다음 LLM extraction 단계에서 채움
 
-## MVP 우선 구현 기능
+## 관련 계약 문서
 
-- Mock 후보 캐시 사용
-- Phase 1 샘플 입력 파싱
-- 후보 정규화 (필수 필드 검증)
-- Phase 3 계약 준수 검증
+- Phase 2 출력 형식: [Phase 2 Format Contract](PHASE_2_FORMAT_CONTRACT.md)
+- Phase 3 인수인계 계약: [Phase 2 to Phase 3 Contract](PHASE_2_TO_PHASE_3_CONTRACT.md)
+- Phase 1 입력 계약: `.planning/phase-1/PHASE_1_FORMAT_CONTRACT.md`
 
 ## 입력/출력 파일
 
 | 구분 | 파일 |
 | --- | --- |
-| Phase 1 입력 (실제) | output/shortage_event.json |
-| Phase 1 입력 (Mock) | .planning/phase-2/shortage_event.sample.json |
-| Phase 3 연동 입력 (Mock) | .planning/phase-2/fastener_shortage_event.sample.json |
-| Mock 후보 캐시 | .planning/phase-2/mock_candidates.csv |
-| Phase 2 출력 | output/candidate_results.json |
-| Phase 2 출력 (Phase 3 연동 검증) | output/candidate_results.fastener.json |
-| Phase 2 출력 (샘플) | .planning/phase-2/candidate_results.sample.json |
-| Phase 2 출력 (Phase 3 연동 샘플) | .planning/phase-2/candidate_results.fastener.sample.json |
+| Phase 1 입력 샘플 | `.planning/phase-2/shortage_event.sample.json` |
+| Phase 3 fastener 연동 입력 샘플 | `.planning/phase-2/fastener_shortage_event.sample.json` |
+| Phase 2 출력 | `output/candidate_results.json` |
+| Phase 2 기본 출력 샘플 | `.planning/phase-2/candidate_results.sample.json` |
+| Phase 2 fastener 연동 출력 샘플 | `.planning/phase-2/candidate_results.fastener.sample.json` |
+
+`candidate_results.sample.json`과 `candidate_results.fastener.sample.json`은 Phase 3 계약 및 회귀 테스트에서 참고할 수 있으므로 유지한다.
 
 ## 검색 쿼리 예시
 
@@ -51,190 +45,99 @@ Phase 2는 구매 담당자가 하던 웹 검색 업무를 자동화하는 구�
 Ball Bearing 6204-ZZ 20mm 47mm 14mm steel replacement
 6204-ZZ bearing alternative 6204-2RS distributor lead time
 6204-ZZ official datasheet price stock
+Ball Bearing 6204-ZZ 대체품 호환품 가격 재고 납기
 ```
 
-## 출력 포맷
+## Live Search 환경변수
 
-```json
-{
-  "search_id": "SR-20260502-001",
-  "material_id": "MAT-1001",
-  "material_name": "Ball Bearing 6204-ZZ",
-  "target_spec_text": "Deep groove ball bearing 6204-ZZ. Shielded metal on both sides. Inner diameter 20mm outer diameter 47mm width 14mm. Steel material.",
-  "searched_at": "2026-05-02T15:30:00+09:00",
-  "query_used": "Ball Bearing 6204-ZZ 20mm 47mm 14mm steel replacement",
-  "candidates": [
-    {
-      "candidate_id": "WEB-001",
-      "candidate_material_id": "MAT-1002",
-      "vendor_name": "Seoul Bearings Co.",
-      "price_krw": 15000,
-      "min_price_krw": 15000,
-      "lead_time_days": 1,
-      "moq": null,
-      "location": "Domestic",
-      "source_type": "official_distributor",
-      "source_url": "https://example.com/seoul-bearings/6204-2rs",
-      "price_listed": true,
-      "stock_listed": true,
-      "leadtime_listed": true,
-      "spec_text": "6204-2RS bearing. Inner diameter 20mm outer diameter 47mm width 14mm. Steel material.",
-      "spec_evidence": "Manufacturer datasheet includes ID 20mm OD 47mm width 14mm steel 6204 series."
-    }
-  ]
-}
+실제 키는 각자 로컬 `.env` 또는 OS 환경변수에만 둔다. `.env`는 Git에 올리지 않는다.
+
+공유용 형식은 repo root의 `.env.example`을 따른다.
+
+```env
+PHASE2_SEARCH_PROVIDER=serpapi
+SERPAPI_API_KEY=
+OPENAI_API_KEY=
 ```
 
-상세 필드 정의는 [Phase 2 Format Contract](PHASE_2_FORMAT_CONTRACT.md)를 따른다.
+PowerShell에서 일시적으로 설정할 경우:
 
-## Phase 3 연동 기준
-
-Phase 3는 후보 검색을 직접 수행하지 않고 Phase 2가 넘긴 후보를 평가한다. 따라서 Phase 2 출력은 아래 필드를 반드시 포함한다.
-
-Phase 2 출력의 root `material_id`는 Phase 1에서 감지된 부족 원본 자재 ID를 유지한다. 후보 대체품의 내부 자재 ID가 있는 경우에는 후보 객체 안의 `candidate_material_id`에 저장한다. 이 규칙을 지켜야 Phase 3가 원본 자재와 후보 자재를 혼동하지 않는다.
-
-| Field | Type | Required | Phase 3 사용 목적 |
-| --- | --- | ---: | --- |
-| candidate_id | string | Yes | 후보 식별 |
-| candidate_material_id | string or null | Yes | 후보 자재 코드가 있을 때 식별 |
-| vendor_name | string | Yes | 평가 리포트 표시 |
-| source_url | string or null | Yes | 출처 신뢰도 평가 |
-| source_type | enum | Yes | 출처 신뢰도 평가 |
-| price_krw | integer or null | Yes | 가격 점수 계산 |
-| min_price_krw | integer or null | Yes | 후보 간 가격 점수 계산 |
-| lead_time_days | integer or null | Yes | 납기 점수 계산 |
-| moq | integer or null | Yes | MOQ 점수 계산 |
-| spec_text | string | Yes | 후보 규격 파싱 |
-| spec_evidence | string | Yes | 데이터시트/상세 규격 근거 |
-| price_listed | boolean | Yes | 출처 신뢰도 평가 |
-| stock_listed | boolean | Yes | 출처 신뢰도 평가 |
-| leadtime_listed | boolean | Yes | 출처 신뢰도 평가 |
-
-`source_type`은 Phase 3 계약에 맞춰 아래 snake_case enum 중 하나로 저장한다.
-
-- manufacturer_page
-- official_distributor
-- industrial_marketplace
-- marketplace
-- unknown
-
-기존 CSV 호환이 필요한 경우에는 아래처럼 매핑한다.
-
-| Phase 2 JSON | 기존 CSV 컬럼 |
-| --- | --- |
-| price_krw | UNIT_PRICE_KRW |
-| spec_evidence | SPEC_EVIDENCE |
-| price_listed | PRICE_LISTED |
-| stock_listed | STOCK_LISTED |
-| leadtime_listed | LEADTIME_LISTED |
-| source_type | SOURCE_TYPE |
+```powershell
+$env:PHASE2_SEARCH_PROVIDER="serpapi"
+$env:SERPAPI_API_KEY="..."
+$env:OPENAI_API_KEY="..."
+```
 
 ## 실행 방법
 
-Phase 2는 Phase 1 없이도 독립 실행이 가능하다.
+샘플 부족 이벤트로 SerpAPI live search 실행:
 
-Mock 입력 사용 (Phase 1 없이 독립 실행):
-
-```bash
-python3 agents/web_research_agent.py --mock-input --output output/candidate_results.json
+```powershell
+python agents\web_research_agent.py --sample-input --search-mode live --search-provider serpapi --output output\candidate_results.json
 ```
 
-Phase 1 출력 연동:
+LLM 검색 쿼리 생성까지 함께 사용:
 
-```bash
-python3 agents/web_research_agent.py --input output/shortage_event.json --output output/candidate_results.json
+```powershell
+python agents\web_research_agent.py --sample-input --search-mode live --search-provider serpapi --query-mode llm --output output\candidate_results.json
 ```
 
-Phase 3 fastener 평가 흐름 검증:
+검색 결과 URL의 페이지 텍스트를 가져와 LLM으로 가격/납기/재고/스펙 근거까지 추출:
 
-```bash
-python3 agents/web_research_agent.py --input .planning/phase-2/fastener_shortage_event.sample.json --output output/candidate_results.fastener.json
+```powershell
+python agents\web_research_agent.py --sample-input --search-mode live --search-provider serpapi --query-mode llm --extraction-mode llm --max-candidates 5 --output output\candidate_results.json
 ```
 
-결과 확인:
+Phase 1 실제 출력과 연동:
 
-```bash
-cat output/candidate_results.json | jq .
+```powershell
+python agents\web_research_agent.py --input output\shortage_event.json --search-mode live --search-provider serpapi --query-mode llm --extraction-mode llm --max-candidates 5 --output output\candidate_results.json
 ```
 
-콘솔 출력과 함께 보기:
+콘솔에도 결과 출력:
 
-```bash
-python3 agents/web_research_agent.py --mock-input --output output/candidate_results.json --print
+```powershell
+python agents\web_research_agent.py --sample-input --search-mode live --search-provider serpapi --print
 ```
 
-## 현재 Mock 데모 결과
+## 현재 구현 상태
 
-현재 mock 데이터에서는 원본 부족 자재 `MAT-1001`에 대해 후보 자재 `MAT-1002` 계열의 4개 후보를 반환한다.
-
-| Candidate ID | Vendor | Source Type | Price Listed | Lead Time |
-| --- | --- | --- | --- | --- |
-| WEB-001 | Seoul Bearings Co. | official_distributor | Yes | 1일 |
-| WEB-002 | Global Parts Inc. | marketplace | Yes | 14일 |
-| WEB-003 | Korea Industrial | official_distributor | Yes | 3일 |
-| WEB-004 | Quick Supply | marketplace | No | 5일 |
-
-Phase 3 연동 검증용으로는 원본 부족 자재 `MAT-3001`에 대해 fastener 후보 4개도 반환한다. 이 데이터는 Phase 3의 현재 평가 도메인과 맞춰 둔 happy path 샘플이다.
-
-| Candidate ID | Candidate Material | Source Type | Phase 3 Expected Decision |
-| --- | --- | --- | --- |
-| WEB-005 | MAT-3002 | official_distributor | reject |
-| WEB-006 | MAT-3003 | official_distributor | recommend |
-| WEB-007 | MAT-3004 | industrial_marketplace | conditional_approve |
-| WEB-008 | MAT-3005 | marketplace | review_required |
+- `build_search_query()`는 Phase 1의 `search_keywords`를 기반으로 기본 검색어를 만든다.
+- `generate_query_candidates()`는 deterministic 또는 LLM 방식으로 검색 쿼리 후보를 만든다.
+- `search_web()`은 provider별 검색 API를 호출하는 공통 진입점이다.
+- `collect_search_results()`는 여러 쿼리를 실행하고 URL 중복을 제거한다.
+- 검색 결과는 `price`, `stock`, `buy`, `lead time`, `구매`, `가격`, `재고`, `납기` 같은 구매 가능성 신호를 기준으로 랭킹한다.
+- `get_verified_search_results()`는 실제 URL이 있는 검색 결과만 선별한다.
+- 검증된 검색 결과는 `LIVE-001`, `LIVE-002` 같은 후보 stub으로 변환된다.
+- `fetch_page_text()`는 verified URL의 HTML에서 보이는 텍스트만 압축해서 가져온다.
+- `extract_candidate_details_with_llm()`은 페이지 텍스트에서 가격, 납기, MOQ, 재고 표시 여부, 스펙 근거를 추출한다.
+- 외화 가격이 명시된 경우 LLM은 원문 가격/금액/통화만 추출하고, 코드는 Frankfurter 최신 환율 API로 KRW를 계산해 `price_krw`에 넣는다.
+- LLM 추출이 실패하거나 값이 명시되지 않은 경우 가격/납기/MOQ는 `null`, 표시 여부는 `false`로 유지한다.
+- `--max-results-per-query`와 `--max-candidates`로 검색 결과 수와 LLM 추출 대상 수를 제한한다.
 
 ## 완료 기준
 
-- 최소 2개 이상의 후보를 같은 포맷으로 반환한다.
-- 각 후보에 source_url과 source_type이 포함된다. URL이 없으면 `source_url: null`로 저장하되, Phase 3에는 낮은 출처 신뢰도 후보로 전달한다.
-- 가격, 납기, 재고 정보의 존재 여부가 boolean으로 표시된다.
-- 실제 검색 실패 시에도 mock 데이터로 데모가 가능하다.
-- Phase 3가 바로 평가할 수 있도록 `price_krw`, `lead_time_days`, `source_type`, `source_url`, `spec_text` 필드가 고정된다.
-- root `material_id`는 Phase 1 부족 자재 ID이며, 후보 자재 ID는 `candidate_material_id`로 분리된다.
-- `source_type` 값은 Phase 3가 사용하는 snake_case enum을 따른다.
-- Phase 1 입력 샘플만으로 독립 실행이 가능하다.
+- Phase 1 부족 이벤트를 읽고 검색 쿼리를 생성한다.
+- SerpAPI provider로 실제 검색 결과 URL과 snippet을 가져올 수 있다.
+- 실제 URL이 확인된 결과만 후보로 승격한다.
+- 후보는 Phase 2 Format Contract의 필수 필드를 모두 포함한다.
+- 알 수 없는 가격, 납기, MOQ는 `null`로 둔다.
+- 알 수 없는 price/stock/leadtime 표시 여부는 `false`로 둔다.
+- `source_type`은 Phase 3가 기대하는 snake_case enum을 사용한다.
+- Phase 3 연동 샘플 JSON은 삭제하지 않는다.
 
-## 테스트 체크리스트
+## 테스트
 
-### 단위 테스트
-
-- Phase 1 샘플 입력을 읽고 파싱할 수 있는가?
-- 검색어 생성 로직이 search_keywords를 활용하는가?
-- Mock 후보가 최소 2개 이상 반환되는가?
-- 각 후보에 필수 필드(candidate_id, vendor_name, source_url)가 모두 채워지는가?
-- URL이 없는 후보는 source_url: null로 표시되는가?
-- 가격/납기/재고 중 누락된 정보가 boolean으로 명확히 드러나는가?
-- 후보별 spec_text와 spec_evidence가 모두 포함되는가?
-- 후보 간 min_price_krw가 계산되는가?
-
-### 계약 준수 테스트
-
-- Phase 2 출력이 Phase 2 Format Contract를 준수하는가?
-- Phase 3가 요구하는 필드명(price_krw, spec_text, moq, source_type)을 포함하는가?
-- source_type이 snake_case enum으로 정규화되는가?
-
-### 통합 테스트 (Phase 3와 연동)
-
-- Phase 2 출력을 Phase 3가 오류 없이 읽을 수 있는가?
-- Phase 3가 candidate_id 기준으로 후보를 식별할 수 있는가?
-
-## 테스트 실행
-
-```bash
-python3 -m unittest tests/test_phase2_research.py
-python3 -m unittest tests/test_phase2_contract.py
+```powershell
+$env:PYTHONPATH="."
+python -m unittest discover -s tests -p "test_phase2_*.py"
 ```
 
-## 샘플 파일
+테스트는 실제 SerpAPI를 호출하지 않고, 검증된 검색 결과를 fake provider로 주입해서 계약을 확인한다.
 
-- Mock 입력 샘플
-- Mock 출력 샘플
+## 다음 단계
 
-## 다음 Phase로 넘길 것
-
-- output/candidate_results.json
-- 후보별 candidate_id
-- 후보별 스펙 증거
-- 후보별 가격/납기/재고 정보
-- 후보별 출처 URL과 출처 유형
-- Phase 3 평가용 spec_text, price_krw, min_price_krw, moq
+- verified URL의 페이지 텍스트 가져오기
+- 실사이트별 본문 추출 품질 개선
+- LLM 추출 결과의 근거 문장 품질 개선
+- 국내 공급사 검색 품질이 부족할 경우 Naver provider 추가 검토
