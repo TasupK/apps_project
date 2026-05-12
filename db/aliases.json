@@ -1,0 +1,7 @@
+{
+  "Bearing": ["Ball Bearing", "Roller Bearing", "Antifriction Bearing", "회전 베어링"],
+  "Gear": ["Spur Gear", "Pinion", "Drive Gear", "평기어"],
+  "Guide": ["Linear Block", "Runner Block", "Slider", "Linear Guide", "리니어 가이드", "슬라이딩 블록"],
+  "Screw": ["Ball Screw", "Lead Screw", "Precision Screw", "볼나사"],
+  "Coupling": ["Flexible Coupling", "Shaft Coupler", "커플링", "축 커플링"]
+}
