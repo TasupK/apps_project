@@ -14,7 +14,7 @@ import urllib.request
 
 from .config import *
 from .llm_client import extract_candidate_details_with_llm
-from .scraper import fetch_page_text, _search_result_text
+from .scraper import fetch_page_text, _search_result_text, _get_json
 
 def extract_candidate_details(
     candidate: dict,

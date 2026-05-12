@@ -1,0 +1,28 @@
+{
+  "event_id": "SE-20260513-EB25C6",
+  "status": "SHORTAGE_DETECTED",
+  "material_id": "MAT-BRG-001",
+  "material_name": "Ball Bearing 6204-ZZ",
+  "category": "Bearing",
+  "brand": "NSK",
+  "mpn": "6204ZZ",
+  "plant": "P100",
+  "current_stock": 8,
+  "safety_stock": 20,
+  "shortage_qty": 12,
+  "technical_specification": "Deep groove ball bearing. ID: 20mm, OD: 47mm, Width: 14mm. Steel material. Double metal shield. ISO Class 6.",
+  "spec_attributes": {
+    "inner_diameter": 20,
+    "outer_diameter": 47,
+    "width": 14,
+    "unit": "mm",
+    "precision": "Class 6",
+    "material": "Steel"
+  },
+  "search_keywords": [
+    "6204ZZ",
+    "Ball Bearing 20.0x47.0x14.0 NSK",
+    "Roller Bearing 20.0x47.0x14.0 NSK"
+  ],
+  "detected_at": "2026-05-13T00:50:41.589124"
+}

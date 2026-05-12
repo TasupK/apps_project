@@ -16,7 +16,8 @@ from .config import *
 from .validator import load_shortage_event, validate_candidate_results
 from .search_engine import collect_search_results, get_verified_search_results
 from .llm_client import generate_query_candidates
-from .extractor import _enrich_candidate_from_page
+from .extractor import _enrich_candidate_from_page, _apply_min_price, _vendor_name_from_search_result, _normalize_source_type
+from .scraper import _search_result_text
 
 def build_candidate_results(
     shortage_event: dict,

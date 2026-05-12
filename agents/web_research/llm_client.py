@@ -77,6 +77,7 @@ def generate_query_candidates_with_llm(
     request_body = {
         "model": model,
         "instructions": QUERY_GENERATION_PROMPT,
+        "max_tokens": 300,  # OpenAI 응답 토큰 제한
         "input": json.dumps(
             {
                 "material_id": shortage_event["material_id"],
@@ -161,6 +162,7 @@ def extract_candidate_details_with_llm(
     request_body = {
         "model": model,
         "instructions": DETAIL_EXTRACTION_PROMPT,
+        "max_tokens": 800,  # OpenAI 상세 정보 추출 토큰 제한
         "input": json.dumps(
             {
                 "shortage_event": {

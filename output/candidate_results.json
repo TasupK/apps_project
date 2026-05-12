@@ -1,64 +1,12 @@
 {
-  "search_id": "SR-20260510-145446",
+  "search_id": "SR-20260513-002043",
   "event_id": "SE-20260502-0001",
   "material_id": "MAT-1001",
   "material_name": "Ball Bearing 6204-ZZ",
   "category": "Bearing",
   "target_spec_text": "Deep groove ball bearing 6204-ZZ. Shielded metal on both sides. Inner diameter 20mm outer diameter 47mm width 14mm. Steel material. Max RPM 10000. Operating temp -20C to 120C.",
-  "searched_at": "2026-05-10T14:54:46+09:00",
-  "query_used": "Ball Bearing 6204-ZZ price in stock",
+  "searched_at": "2026-05-13T00:20:43+09:00",
+  "query_used": "Ball Bearing 6204-ZZ 20mm 47mm 14mm steel replacement",
   "search_mode": "live",
-  "candidates": [
-    {
-      "candidate_id": "LIVE-001",
-      "candidate_material_id": null,
-      "vendor_name": "미스미",
-      "price_krw": 2680,
-      "min_price_krw": 2680,
-      "lead_time_days": null,
-      "moq": null,
-      "location": "Unknown",
-      "source_type": "official_distributor",
-      "source_url": "https://kr.misumi-ec.com/vona2/detail/221005276386/?HissuCode=6204ZZ&srsltid=AfmBOoog4AjPa8YW3OQITKh4uBr7q8Aq1AmuvrXpb-1YdHB0hlgwK_h5",
-      "price_listed": true,
-      "stock_listed": false,
-      "leadtime_listed": false,
-      "spec_text": "깊은 홈 볼베어링-양실드형, 6204ZZ, 케이비시 (KBC) - 미스미. 형번 : 6204ZZ 깊은 홈 볼베어링-양실드형. 케이비시 (KBC).",
-      "spec_evidence": "Verified search result only. Detailed price, stock, lead time, and spec extraction is pending."
-    },
-    {
-      "candidate_id": "LIVE-002",
-      "candidate_material_id": null,
-      "vendor_name": "Radial/Deep Groove Ball Bearing",
-      "price_krw": null,
-      "min_price_krw": 2680,
-      "lead_time_days": null,
-      "moq": null,
-      "location": "Unknown",
-      "source_type": "unknown",
-      "source_url": "https://www.motioncanada.ca/products/sku/00052216",
-      "price_listed": false,
-      "stock_listed": false,
-      "leadtime_listed": false,
-      "spec_text": "NSK 6204ZZ - Radial/Deep Groove Ball Bearing. The 6204ZZ is a radial deep groove ball bearing with a 20 mm bore, double ... In StockIn stock. $17.94/each. Sign in for your price. Qty. Add to Cart ...",
-      "spec_evidence": "Verified search result only. Detailed price, stock, lead time, and spec extraction is pending."
-    },
-    {
-      "candidate_id": "LIVE-003",
-      "candidate_material_id": null,
-      "vendor_name": "미스미",
-      "price_krw": null,
-      "min_price_krw": 2680,
-      "lead_time_days": null,
-      "moq": null,
-      "location": "Unknown",
-      "source_type": "official_distributor",
-      "source_url": "https://kr.misumi-ec.com/vona2/detail/221005152862/?HissuCode=6204ZZ&srsltid=AfmBOopUvt08WG3otlwh44XUKgM7YLhYnA34cLGIG3gP05zwn3a70VZf",
-      "price_listed": false,
-      "stock_listed": false,
-      "leadtime_listed": false,
-      "spec_text": "형번 : 6204ZZ 단열 깊은 홈 볼 베어링 - 미스미. 제이텍트코요 (JTEKT KOYO)의 단열 깊은 홈 볼 베어링 (6204ZZ)입니다. 【특징】・회전 베어링 중에서 가장 많이 사용되는 형식으로, 레이디얼 하중과 약간의 양방향 ...",
-      "spec_evidence": "Verified search result only. Detailed price, stock, lead time, and spec extraction is pending."
-    }
-  ]
+  "candidates": []
 }

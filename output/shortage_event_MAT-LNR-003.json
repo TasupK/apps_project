@@ -1,0 +1,27 @@
+{
+  "event_id": "SE-20260513-9805F9",
+  "status": "SHORTAGE_DETECTED",
+  "material_id": "MAT-LNR-003",
+  "material_name": "Linear Block HSR20",
+  "category": "Guide",
+  "brand": "THK",
+  "mpn": "HSR20CA",
+  "plant": "P200",
+  "current_stock": 2,
+  "safety_stock": 10,
+  "shortage_qty": 8,
+  "technical_specification": "Size 20. Width: 63mm, Length: 74mm. Static Load: 27.4kN. Material: Stainless Steel (SUS).",
+  "spec_attributes": {
+    "size": 20,
+    "width": 63,
+    "length": 74,
+    "unit": "mm",
+    "material": "Stainless"
+  },
+  "search_keywords": [
+    "HSR20CA",
+    "Linear Block  THK",
+    "Runner Block  THK"
+  ],
+  "detected_at": "2026-05-13T00:50:41.589532"
+}

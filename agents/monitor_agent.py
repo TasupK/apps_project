@@ -1,5 +1,6 @@
 import uuid
 import json
+import os
 from datetime import datetime
 from db.database import get_connection
 from db.models import ShortageEvent
@@ -65,7 +66,9 @@ def run_monitor():
     print(f"Detected {len(shortages)} shortages!")
     for ev in shortages:
         # JSON 파일로 저장 (Phase 2에서 읽어갈 수 있도록)
-        output_path = f"shortage_event_{ev.material_id}.json"
+        output_dir = "output"
+        os.makedirs(output_dir, exist_ok=True)
+        output_path = os.path.join(output_dir, f"shortage_event_{ev.material_id}.json")
         with open(output_path, "w", encoding="utf-8") as f:
             f.write(ev.model_dump_json(indent=2))
         

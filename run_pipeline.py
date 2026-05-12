@@ -3,6 +3,10 @@ import glob
 import subprocess
 from agents.monitor_agent import run_monitor
 
+# 여기에 발급받으신 실제 키를 직접 입력하세요. (GitHub에 올릴 때는 꼭 가리세요!)
+os.environ["OPENAI_API_KEY"] = "sk-여기에_실제_오픈AI_키_입력"
+os.environ["SERPAPI_API_KEY"] = "여기에_실제_SerpAPI_키_입력"
+
 def main():
     print("=== [Phase 1] Running Monitor Agent ===")
     # Phase 1: 재고 감지 및 이벤트 생성
@@ -27,7 +31,7 @@ def main():
         
         # Phase 2 명령어 구성
         cmd = [
-            "python", "agents/web_research/agent.py",
+            "python", "-m", "agents.web_research.agent",
             "--input", event_file,
             "--search-mode", "live",
             "--search-provider", "serpapi",

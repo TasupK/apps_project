@@ -1,0 +1,27 @@
+{
+  "event_id": "SE-20260513-010478",
+  "status": "SHORTAGE_DETECTED",
+  "material_id": "MAT-SCW-004",
+  "material_name": "Ball Screw 1505",
+  "category": "Screw",
+  "brand": "NSK",
+  "mpn": "W1502FA",
+  "plant": "P100",
+  "current_stock": 1,
+  "safety_stock": 3,
+  "shortage_qty": 2,
+  "technical_specification": "Diameter: 15mm, Lead: 5mm. Precision grade C5. Overall length 500mm.",
+  "spec_attributes": {
+    "diameter": 15,
+    "lead": 5,
+    "precision": "C5",
+    "unit": "mm",
+    "material": "Steel"
+  },
+  "search_keywords": [
+    "Ball Screw  NSK",
+    "Lead Screw  NSK",
+    "W1502FA"
+  ],
+  "detected_at": "2026-05-13T00:50:41.589684"
+}

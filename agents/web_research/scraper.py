@@ -71,3 +71,11 @@ def _search_result_text(result: dict) -> str:
     parts = [result.get("title"), result.get("snippet")]
     text = ". ".join(str(part).strip() for part in parts if str(part or "").strip())
     return text or "Verified web search result with limited snippet evidence."
+
+def _get_json(url: str, headers: dict[str, str] | None = None) -> dict:
+    request = urllib.request.Request(url, headers=headers or {}, method="GET")
+    try:
+        with urllib.request.urlopen(request, timeout=20) as response:
+            return json.loads(response.read().decode("utf-8"))
+    except (OSError, urllib.error.HTTPError, json.JSONDecodeError) as exc:
+        raise RuntimeError(f"web search request failed: {exc}") from exc
