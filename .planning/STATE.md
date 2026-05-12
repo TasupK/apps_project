@@ -9,22 +9,22 @@ See: .planning/PROJECT.md (updated 2026-04-01)
 
 ## Current Status
 
-**Phase:** 1 of 5
-**Milestone:** Milestone 1 (PoC 완성)
+**Phase:** 2 of 5
+**Milestone:** Milestone 1 (PoC 완성) - In Progress
 **Started:** 2026-04-01
 **Mode:** YOLO (auto-approve)
 
 ## Active Work
 
-- [ ] Phase 1: Mock Data Layer & Monitor Agent (담당: 팀원 A)
+- [ ] Phase 2: Web Research Agent & Source Collection (담당: 팀원 B)
 
 ## Completed
 
-(None yet)
+- [x] Phase 1: Mock Data Layer & Monitor Agent (PoC 뼈대 완성 및 병합)
 
 ## Blockers
 
 (None)
 
 ---
-*Last updated: 2026-04-01 after initialization*
+*Last updated: 2026-05-12 after Phase 1 merge*

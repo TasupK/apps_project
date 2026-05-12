@@ -16,7 +16,7 @@
 - [Phase 4: Orchestration & Human-in-the-Loop](phase-4/PHASE_4.md)
 - [Phase 5: Streamlit UI & Demo](phase-5/PHASE_5.md)
 
-### Phase 1: 뼈대 세우기 — Mock Data Layer & Monitor Agent
+### Phase 1: 뼈대 세우기 — Mock Data Layer & Monitor Agent (Completed ✅)
 *주차: 1~2주차 | 담당: 팀원 A*
 
 **Goal:** 자재 마스터/재고 스냅샷/웹 후보 캐시 세팅 및 재고 알람 연동
