@@ -1,125 +1,280 @@
-import streamlit as st
-import pandas as pd
-import time
-import os
-import glob
+from __future__ import annotations
+
 import json
+import os
 from datetime import datetime
+from pathlib import Path
 
-# 1. 페이지 설정 (넓은 화면 레이아웃)
-st.set_page_config(page_title="BuyBee", layout="wide", page_icon="🔎")
+import pandas as pd
+import streamlit as st
 
-# 2. 데이터 경로 설정 (미리 만들어둔 mock data 활용)
-BASE_DIR = os.path.dirname(os.path.abspath(__file__))
-INV_FILE = os.path.join(BASE_DIR, 'inventory_data.csv')
-MAT_FILE = os.path.join(BASE_DIR, 'material_master.csv')
-VEN_FILE = os.path.join(BASE_DIR, 'vendor_sourcing.csv')
-PO_FILE = os.path.join(BASE_DIR, 'PO_Result.csv')
-REPORT_PATTERN = os.path.join(BASE_DIR, 'output', 'evaluation_report_batch*.json')
+from agents.evaluation_agent import evaluate_candidates_from_phase2_results
+from agents.monitor_agent import scan_inventory
+from agents.reporting_agent import write_evaluation_report
+from agents.web_research.agent import run_web_research
+from db.database import get_connection
+from graph.state import make_initial_state
+from graph.workflow import build_graph
+
+
+BASE_DIR = Path(__file__).resolve().parent
+OUTPUT_DIR = BASE_DIR / "output"
+PO_FILE = BASE_DIR / "PO_Result.csv"
+ENV_FILE = BASE_DIR / ".env"
 BUDGET_LIMIT_KRW = 5_000_000
 
-# 3. 데이터 로드 함수
-@st.cache_data
-def load_data():
-    df_inv = pd.read_csv(INV_FILE)
-    df_mat = pd.read_csv(MAT_FILE)
-    df_ven = pd.read_csv(VEN_FILE)
-    return df_inv, df_mat, df_ven
 
-try:
-    df_inv, df_mat, df_ven = load_data()
-except FileNotFoundError:
-    st.error("데이터 파일을 찾을 수 없습니다. inventory_data.csv 들이 같은 폴더에 있는지 확인해주세요.")
-    st.stop()
+st.set_page_config(page_title="BuyBee", layout="wide", page_icon="B")
 
-# 4. 세션 상태 초기화 (챗봇 대화 기록 및 현재 단계 저장)
-if "messages" not in st.session_state:
-    st.session_state.messages = [{"role": "assistant", "content": "안녕하세요! SCM Copilot입니다. 무엇을 도와드릴까요? (명령어 예: '재고 확인해줘')"}]
-if "step" not in st.session_state:
-    st.session_state.step = 0 # 0: 대기, 1: 재고 감지, 2: 웹 검색/검증, 3: 발주 초안 생성
-if "selected_material" not in st.session_state:
-    st.session_state.selected_material = None
-if "po_created" not in st.session_state:
-    st.session_state.po_created = False
-if "approval_ready" not in st.session_state:
-    st.session_state.approval_ready = False
 
-def get_shortage():
-    shortage_df = df_inv[df_inv['CURRENT_STOCK'] < df_inv['SAFETY_STOCK']]
-    if shortage_df.empty:
-        return None
-    row = shortage_df.iloc[0]
-    return {
-        "material_id": row["MATERIAL_ID"],
-        "material_name": row["MATERIAL_NAME"],
-        "current_stock": int(row["CURRENT_STOCK"]),
-        "safety_stock": int(row["SAFETY_STOCK"]),
-        "shortage_qty": int(row["SAFETY_STOCK"] - row["CURRENT_STOCK"]),
+def load_env_file(path: Path = ENV_FILE) -> None:
+    if not path.exists():
+        return
+    for line in path.read_text(encoding="utf-8").splitlines():
+        stripped = line.strip()
+        if not stripped or stripped.startswith("#") or "=" not in stripped:
+            continue
+        key, value = stripped.split("=", 1)
+        key = key.strip()
+        value = value.strip().strip('"').strip("'")
+        if key and value and key not in os.environ:
+            os.environ[key] = value
+
+
+load_env_file()
+
+
+@st.cache_data(ttl=30)
+def load_inventory_from_db() -> pd.DataFrame:
+    query = """
+        SELECT
+            m.material_id,
+            m.material_name,
+            m.category,
+            m.brand,
+            m.mpn,
+            m.technical_specification,
+            i.current_stock,
+            i.safety_stock,
+            i.plant,
+            i.last_updated
+        FROM inventory i
+        JOIN material_master m ON i.material_id = m.material_id
+        ORDER BY m.material_id
+    """
+    with get_connection() as conn:
+        return pd.read_sql_query(query, conn)
+
+
+def initialize_session() -> None:
+    defaults = {
+        "step": "idle",
+        "approval_ready": False,
+        "candidate_results": None,
+        "evaluation_report": None,
+        "selected_material_id": None,
+        "po_created": PO_FILE.exists(),
+        "po_row": None,
+        "last_error": None,
+        "messages": [
+            {
+                "role": "assistant",
+                "content": "안녕하세요. 실제 재고 DB 기준으로 부족 자재를 확인하고 웹 리서치를 실행할 수 있습니다.",
+            }
+        ],
     }
+    for key, value in defaults.items():
+        st.session_state.setdefault(key, value)
 
-def get_recommendation(target_material_id="MAT-1001"):
-    target_spec = df_mat[df_mat['MATERIAL_ID'] == target_material_id]['TECHNICAL_SPECIFICATION'].values[0]
-    candidates = df_ven[df_ven['MATERIAL_ID'] == 'MAT-1002'].sort_values(
-        ["FINAL_SCORE", "LEAD_TIME_DAYS"],
-        ascending=[False, True],
+
+def reset_demo_state() -> None:
+    for key in [
+        "step",
+        "approval_ready",
+        "candidate_results",
+        "evaluation_report",
+        "po_created",
+        "po_row",
+        "last_error",
+    ]:
+        st.session_state.pop(key, None)
+    st.session_state.messages = [
+        {"role": "assistant", "content": "상태를 초기화했습니다. 실제 재고 DB를 다시 읽습니다."}
+    ]
+    initialize_session()
+
+
+def shortage_rows(inventory: pd.DataFrame) -> pd.DataFrame:
+    shortage = inventory[inventory["current_stock"] < inventory["safety_stock"]].copy()
+    shortage["shortage_qty"] = shortage["safety_stock"] - shortage["current_stock"]
+    shortage["risk_ratio"] = shortage["current_stock"] / shortage["safety_stock"]
+    return shortage.sort_values(["risk_ratio", "shortage_qty"], ascending=[True, False])
+
+
+def shortage_events_by_material() -> dict[str, dict]:
+    events = {}
+    for event in scan_inventory():
+        events[event.material_id] = json.loads(event.model_dump_json())
+    return events
+
+
+def default_selected_material(shortages: pd.DataFrame) -> str | None:
+    if shortages.empty:
+        return None
+    current = st.session_state.get("selected_material_id")
+    if current in set(shortages["material_id"]):
+        return current
+    return str(shortages.iloc[0]["material_id"])
+
+
+def write_shortage_event(event: dict) -> Path:
+    OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
+    path = OUTPUT_DIR / f"shortage_event_{event['material_id']}.json"
+    path.write_text(json.dumps(event, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+    return path
+
+
+def candidate_output_path(material_id: str) -> Path:
+    return OUTPUT_DIR / f"candidate_results_{material_id}.json"
+
+
+def evaluation_output_path(material_id: str) -> Path:
+    return OUTPUT_DIR / f"evaluation_report_batch_{material_id}.json"
+
+
+def run_actual_pipeline(event: dict) -> tuple[dict, dict]:
+    event_path = write_shortage_event(event)
+    candidate_path = candidate_output_path(event["material_id"])
+
+    has_serpapi = bool(os.environ.get("SERPAPI_API_KEY"))
+    has_openai = bool(os.environ.get("OPENAI_API_KEY"))
+    provider = "serpapi" if has_serpapi else "llm_plan"
+
+    candidate_results = run_web_research(
+        input_path=event_path,
+        output_path=candidate_path,
+        search_mode="live",
+        query_mode="llm" if has_openai else "deterministic",
+        extraction_mode="llm" if has_openai and has_serpapi else "none",
+        search_provider=provider,
+        max_results_per_query=3,
+        max_candidates=6,
     )
-    best = candidates.iloc[0]
-    sub_spec = df_mat[df_mat['MATERIAL_ID'] == best['MATERIAL_ID']]['TECHNICAL_SPECIFICATION'].values[0]
-    return target_spec, sub_spec, candidates, best
 
-def load_latest_evaluation_report():
-    report_files = sorted(glob.glob(REPORT_PATTERN), key=os.path.getmtime, reverse=True)
-    if not report_files:
-        return None
-    with open(report_files[0], "r", encoding="utf-8") as f:
-        return json.load(f)
+    evaluation_report = evaluate_candidates_from_phase2_results(candidate_path, mode="urgent")
+    write_evaluation_report(evaluation_report, evaluation_output_path(event["material_id"]))
+    return candidate_results, evaluation_report
 
-def get_recommendation_from_report(report):
-    items = report.get("items", [])
-    if not items:
+
+def build_candidate_table(candidate_results: dict | None, evaluation_report: dict | None) -> pd.DataFrame:
+    if evaluation_report:
+        rows = []
+        for item in evaluation_report.get("items", []):
+            candidate = item.get("candidate_material", {})
+            scores = item.get("scores", {})
+            decision = item.get("decision_context", {})
+            trust_notes = item.get("source_trust_notes", {})
+            rows.append(
+                {
+                    "candidate_id": candidate.get("candidate_id"),
+                    "vendor_name": candidate.get("vendor_name"),
+                    "decision": decision.get("decision"),
+                    "risk_level": decision.get("risk_level"),
+                    "price_krw": candidate.get("price_krw"),
+                    "lead_time_days": candidate.get("lead_time_days"),
+                    "source_type": candidate.get("source_type"),
+                    "compatibility_score": scores.get("compatibility_score"),
+                    "source_trust_score": scores.get("source_trust_score"),
+                    "final_score": scores.get("final_score"),
+                    "risk_note": " / ".join(trust_notes.get("risk_factors", []))
+                    or decision.get("recommendation_reason"),
+                    "source_url": candidate.get("source_url"),
+                }
+            )
+        return pd.DataFrame(rows)
+
+    rows = []
+    for candidate in (candidate_results or {}).get("candidates", []):
+        rows.append(
+            {
+                "candidate_id": candidate.get("candidate_id"),
+                "vendor_name": candidate.get("vendor_name"),
+                "decision": "not_evaluated",
+                "risk_level": "Review",
+                "price_krw": candidate.get("price_krw"),
+                "lead_time_days": candidate.get("lead_time_days"),
+                "source_type": candidate.get("source_type"),
+                "compatibility_score": None,
+                "source_trust_score": None,
+                "final_score": None,
+                "risk_note": candidate.get("spec_evidence"),
+                "source_url": candidate.get("source_url"),
+            }
+        )
+    return pd.DataFrame(rows)
+
+
+def get_top_evaluation_item(evaluation_report: dict | None) -> dict | None:
+    if not evaluation_report:
         return None
-    top_id = report.get("top_candidate_id")
-    selected = next(
+    items = evaluation_report.get("items", [])
+    top_id = evaluation_report.get("top_candidate_id")
+    return next(
         (item for item in items if item.get("candidate_material", {}).get("candidate_id") == top_id),
-        items[0],
+        items[0] if items else None,
     )
-    return selected
 
-def create_po_draft(shortage, best):
-    po_row = {
-        "PO_DRAFT_NO": f"PO-DRAFT-{datetime.now().strftime('%Y%m%d%H%M%S')}",
-        "CREATED_AT": datetime.now().isoformat(timespec="seconds"),
-        "SOURCE": "Human-approved web research result",
-        "VENDOR_NAME": best["VENDOR_NAME"],
-        "MATERIAL_ID": best["MATERIAL_ID"],
-        "CANDIDATE_ID": best["CANDIDATE_ID"],
-        "UNIT_PRICE_KRW": int(best["UNIT_PRICE_KRW"]),
-        "ORDER_QTY": shortage["shortage_qty"],
-        "TOTAL_AMOUNT_KRW": int(best["UNIT_PRICE_KRW"]) * shortage["shortage_qty"],
-        "LEAD_TIME_DAYS": int(best["LEAD_TIME_DAYS"]),
-        "SOURCE_URL": best["SOURCE_URL"],
-        "FINAL_SCORE": int(best["FINAL_SCORE"]),
-        "RISK_NOTE": best["RISK_NOTE"],
+
+def run_phase4_approval(event: dict, evaluation_report: dict) -> dict:
+    graph = build_graph()
+    state = make_initial_state(f"streamlit-{event['material_id']}-{datetime.now().strftime('%H%M%S')}")
+    state["shortage_event"] = {
+        "material_id": event.get("material_id"),
+        "description": event.get("material_name"),
+        "shortage_qty": event.get("shortage_qty", 0),
     }
-    pd.DataFrame([po_row]).to_csv(PO_FILE, index=False)
-    st.session_state.po_created = True
-    return po_row
+    state["evaluation_report_batch"] = evaluation_report
 
-def create_po_draft_from_report(shortage, report, selected_item):
-    candidate = selected_item["candidate_material"]
-    scores = selected_item.get("scores", {})
-    decision = selected_item.get("decision_context", {})
-    unit_price = int(candidate.get("price_krw") or 0)
+    config = {"configurable": {"thread_id": state["workflow_id"]}}
+    for _ in graph.stream(state, config=config):
+        pass
+
+    current_state = graph.get_state(config).values
+    if current_state.get("status") != "APPROVAL_PENDING":
+        raise RuntimeError(f"Phase 4 approval is not available: {current_state.get('status')}")
+
+    current_state["approval"] = {
+        "required": True,
+        "approved": True,
+        "approver": "streamlit_user",
+        "approved_at": datetime.now().astimezone().isoformat(timespec="seconds"),
+    }
+    graph.update_state(config, current_state)
+    for _ in graph.stream(None, config=config):
+        pass
+    return graph.get_state(config).values
+
+
+def write_po_from_phase4_state(final_state: dict, evaluation_report: dict) -> dict:
+    po_draft = final_state.get("po_draft")
+    if not po_draft:
+        raise RuntimeError("Phase 4 did not produce po_draft.")
+
+    item = get_top_evaluation_item(evaluation_report) or {}
+    candidate = item.get("candidate_material", {})
+    scores = item.get("scores", {})
+    decision = item.get("decision_context", {})
     po_row = {
         "PO_DRAFT_NO": f"PO-DRAFT-{datetime.now().strftime('%Y%m%d%H%M%S')}",
         "CREATED_AT": datetime.now().isoformat(timespec="seconds"),
-        "SOURCE": "Human-approved Phase 3 evaluation result",
-        "VENDOR_NAME": candidate.get("vendor_name"),
-        "MATERIAL_ID": shortage["material_id"],
+        "WORKFLOW_STATUS": final_state.get("status"),
+        "SOURCE": "phase4_po_draft",
+        "VENDOR_NAME": po_draft.get("vendor_name"),
+        "MATERIAL_ID": po_draft.get("material_code"),
         "CANDIDATE_ID": candidate.get("candidate_id"),
-        "UNIT_PRICE_KRW": unit_price,
-        "ORDER_QTY": shortage["shortage_qty"],
-        "TOTAL_AMOUNT_KRW": unit_price * shortage["shortage_qty"],
+        "UNIT_PRICE_KRW": po_draft.get("unit_price"),
+        "ORDER_QTY": po_draft.get("quantity"),
+        "TOTAL_AMOUNT_KRW": po_draft.get("total_price"),
         "LEAD_TIME_DAYS": candidate.get("lead_time_days"),
         "SOURCE_URL": candidate.get("source_url"),
         "FINAL_SCORE": scores.get("final_score"),
@@ -127,191 +282,232 @@ def create_po_draft_from_report(shortage, report, selected_item):
     }
     pd.DataFrame([po_row]).to_csv(PO_FILE, index=False)
     st.session_state.po_created = True
+    st.session_state.po_row = po_row
     return po_row
 
-# 5. 하이브리드 투-패널 화면 분할 (대시보드 6.5 : 챗봇 3.5 비율)
-col1, col2 = st.columns([6.5, 3.5])
 
-# ==========================================
-# 🖥️ [좌측 패널] 웹 대시보드 화면 (PC 모니터용)
-# ==========================================
-with col1:
-    st.title("BuyBee 웹 리서치 기반 대체 자재 대시보드")
-    
-    # [Step 1] 재고 현황 시각화
-    st.subheader("[Step 1] 재고 리스크 모니터링")
-    chart_data = df_inv[['MATERIAL_NAME', 'CURRENT_STOCK', 'SAFETY_STOCK']].set_index('MATERIAL_NAME')
-    st.bar_chart(chart_data, color=["#FF4B4B", "#0068C9"]) # 빨간색: 현재재고, 파란색: 안전재고
-    
-    shortage = get_shortage()
-    if shortage:
-        st.error(f"경고: '{shortage['material_name']}' 재고가 안전 수준 이하입니다. 부족 수량: {shortage['shortage_qty']}개")
-    
-    st.markdown("---")
-    
-    # [Step 2 & 3] 웹 검색 후보 검증 및 벤더 비교 (챗봇 진행에 따라 나타남)
-    if st.session_state.step >= 2:
-        st.subheader("[Step 2 & 3] 웹 검색 후보 검증 및 구매 전략")
-        st.markdown("**자동 검증 결과: Rule 기반 스펙 비교 + 출처 신뢰도 평가 + 사용자 2차 검토 대기**")
-        report = load_latest_evaluation_report()
-        selected_item = get_recommendation_from_report(report) if report else None
+def assistant_reply(prompt: str, event: dict) -> str:
+    text = prompt.strip().lower()
 
-        if selected_item:
-            candidate = selected_item["candidate_material"]
-            target = selected_item["target_material"]
-            scores = selected_item["scores"]
-            decision = selected_item["decision_context"]
+    if any(word in text for word in ["재고", "위험", "부족", "확인"]):
+        st.session_state.step = "inventory_checked"
+        st.session_state.approval_ready = False
+        return (
+            f"실제 DB 기준 **{event['material_id']} ({event['material_name']})** 재고는 "
+            f"{event['current_stock']}개이고 안전재고는 {event['safety_stock']}개입니다. "
+            f"부족 수량은 **{event['shortage_qty']}개**입니다."
+        )
 
-            c1, c2 = st.columns(2)
-            c1.info(f"**결품 자재 ({target['material_id']})**\n\n{target['description']}")
-            c2.success(f"**웹 검색 후보 ({candidate['candidate_id']}) - {decision['decision']}**\n\n{candidate['spec']}")
+    if any(word in text for word in ["대체", "찾아", "검색", "후보", "업체"]):
+        try:
+            with st.spinner("웹 리서치와 평가를 실행하는 중입니다..."):
+                candidate_results, evaluation_report = run_actual_pipeline(event)
+        except Exception as exc:
+            st.session_state.last_error = str(exc)
+            st.session_state.approval_ready = False
+            return f"파이프라인 실행이 실패했습니다.\n\n`{exc}`"
 
-            m1, m2, m3, m4 = st.columns(4)
-            m1.metric("추천 업체", candidate["vendor_name"])
-            m2.metric("최종 점수", f"{scores['final_score']}/100")
-            m3.metric("출처 신뢰도", f"{scores['source_trust_score']}/100")
-            m4.metric("예상 납기", f"{candidate['lead_time_days']}일")
+        st.session_state.candidate_results = candidate_results
+        st.session_state.evaluation_report = evaluation_report
+        st.session_state.step = "candidates_loaded"
 
-            rows = []
-            for item in report.get("items", []):
-                mat = item["candidate_material"]
-                item_scores = item["scores"]
-                item_decision = item["decision_context"]
-                rows.append({
-                    "CANDIDATE_ID": mat["candidate_id"],
-                    "VENDOR_NAME": mat["vendor_name"],
-                    "UNIT_PRICE_KRW": mat["price_krw"],
-                    "LEAD_TIME_DAYS": mat["lead_time_days"],
-                    "SOURCE_TYPE": mat["source_type"],
-                    "FINAL_SCORE": item_scores["final_score"],
-                    "DECISION": item_decision["decision"],
-                    "RISK_NOTE": item_decision["recommendation_reason"],
-                })
-            st.markdown("**Phase 3 평가 후보 및 신뢰도 검증표**")
-            st.dataframe(pd.DataFrame(rows), use_container_width=True, hide_index=True)
-            st.caption(f"출처 URL: {candidate['source_url']}")
-        else:
-            target_spec, sub_spec, candidates, best = get_recommendation()
+        table = build_candidate_table(candidate_results, evaluation_report)
+        action = evaluation_report.get("next_action")
+        st.session_state.approval_ready = action == "approval_pending"
+        top_item = get_top_evaluation_item(evaluation_report)
+        top_candidate = top_item.get("candidate_material", {}) if top_item else {}
 
-            c1, c2 = st.columns(2)
-            c1.info(f"**결품 자재 (MAT-1001)**\n\n{target_spec}")
-            c2.success(f"**웹 검색 후보 ({best['MATERIAL_ID']}) - 기술 호환성 {best['TECH_COMPATIBILITY_PERCENT']}%**\n\n{sub_spec}")
-
-            m1, m2, m3, m4 = st.columns(4)
-            m1.metric("추천 업체", best["VENDOR_NAME"])
-            m2.metric("최종 점수", f"{best['FINAL_SCORE']}/100")
-            m3.metric("출처 신뢰도", f"{best['SOURCE_RELIABILITY_SCORE']}/100")
-            m4.metric("예상 납기", f"{best['LEAD_TIME_DAYS']}일")
-
-            st.markdown("**웹 검색 후보 및 신뢰도 검증표**")
-            st.dataframe(
-                candidates[[
-                    "CANDIDATE_ID", "VENDOR_NAME", "UNIT_PRICE_KRW", "LEAD_TIME_DAYS",
-                    "SOURCE_TYPE", "TECH_COMPATIBILITY_PERCENT", "SOURCE_RELIABILITY_SCORE",
-                    "FINAL_SCORE", "VALIDATION_STATUS", "RISK_NOTE"
-                ]],
-                use_container_width=True,
-                hide_index=True,
+        if action == "approval_pending":
+            return (
+                f"후보 {len(table)}개를 수집하고 Phase 3/4 승인 대기 조건을 확인했습니다. "
+                f"승인 대상은 **{top_candidate.get('vendor_name')} / {top_candidate.get('candidate_id')}**입니다."
             )
-            st.caption(f"출처 URL: {best['SOURCE_URL']}")
+        if action == "manual_review":
+            return "후보는 찾았지만 자동 승인 대상이 아닙니다. 구매 담당자 수동 검토가 필요해 PO 초안 생성을 잠급니다."
+        return "승인 가능한 후보를 찾지 못했습니다. PO 초안 생성은 잠겨 있습니다."
 
-    if st.session_state.po_created and os.path.exists(PO_FILE):
-        st.markdown("---")
-        st.subheader("[Step 5] PO 초안 생성 결과")
-        st.dataframe(pd.read_csv(PO_FILE), use_container_width=True, hide_index=True)
+    if any(word in text for word in ["반려", "거절", "보류", "중단"]):
+        st.session_state.step = "rejected"
+        st.session_state.approval_ready = False
+        return "반려로 기록했습니다. PO 초안은 생성하지 않았습니다."
+
+    if any(word in text for word in ["승인", "발주", "진행", "ok", "yes", "응"]):
+        if not st.session_state.approval_ready or not st.session_state.evaluation_report:
+            return "아직 Phase 4 승인 대기 상태가 아닙니다. 먼저 `대체품 찾아줘`로 후보 평가를 완료해주세요."
+        try:
+            final_state = run_phase4_approval(event, st.session_state.evaluation_report)
+            po_row = write_po_from_phase4_state(final_state, st.session_state.evaluation_report)
+        except Exception as exc:
+            return f"PO 초안 생성에 실패했습니다.\n\n`{exc}`"
+        st.session_state.step = "po_created"
+        st.session_state.approval_ready = False
+        return (
+            f"승인 완료했습니다. Phase 4 `po_draft` 기준으로 `{PO_FILE.name}`를 생성했습니다.\n\n"
+            f"{po_row['PO_DRAFT_NO']} / {po_row['VENDOR_NAME']} / "
+            f"{po_row['ORDER_QTY']}개 / {po_row['TOTAL_AMOUNT_KRW']:,}원"
+        )
+
+    return "재고 확인, 대체품 검색, 승인, 반려 중 하나로 진행할 수 있습니다."
 
 
-# ==========================================
-# 💬 [우측 패널] 메신저 챗봇 UI (모바일 호환)
-# ==========================================
-with col2:
+def render_inventory(inventory: pd.DataFrame, shortages: pd.DataFrame) -> None:
+    st.subheader("실제 재고 DB")
+    chart = inventory[["material_name", "current_stock", "safety_stock"]].set_index("material_name")
+    st.bar_chart(chart, color=["#d64545", "#2563eb"])
+    st.dataframe(
+        shortages[
+            [
+                "material_id",
+                "material_name",
+                "category",
+                "brand",
+                "mpn",
+                "current_stock",
+                "safety_stock",
+                "shortage_qty",
+                "plant",
+            ]
+        ],
+        width="stretch",
+        hide_index=True,
+    )
+
+
+def render_pipeline_results(event: dict) -> None:
+    st.subheader("웹 리서치 및 평가 결과")
+    candidate_results = st.session_state.candidate_results
+    evaluation_report = st.session_state.evaluation_report
+
+    if st.session_state.last_error:
+        st.error(st.session_state.last_error)
+
+    if not candidate_results:
+        st.info("아직 웹 검색을 실행하지 않았습니다. 우측 승인 창에서 `대체품 찾아줘`를 입력하세요.")
+        return
+
+    c1, c2, c3, c4 = st.columns(4)
+    c1.metric("검색 ID", candidate_results.get("search_id", "-"))
+    c2.metric("검색 후보", len(candidate_results.get("candidates", [])))
+    c3.metric("다음 액션", evaluation_report.get("next_action", "-") if evaluation_report else "-")
+    c4.metric("예산 한도", f"{BUDGET_LIMIT_KRW:,}원")
+
+    st.markdown("**부족 자재 스펙**")
+    st.info(f"{event.get('material_id')} / {event.get('material_name')}\n\n{event.get('technical_specification')}")
+
+    table = build_candidate_table(candidate_results, evaluation_report)
+    if table.empty:
+        st.warning("검증된 검색 후보가 없습니다. 검색 키워드 또는 API 설정을 확인해야 합니다.")
+        return
+
+    st.dataframe(
+        table[
+            [
+                "candidate_id",
+                "vendor_name",
+                "decision",
+                "risk_level",
+                "price_krw",
+                "lead_time_days",
+                "source_type",
+                "compatibility_score",
+                "source_trust_score",
+                "final_score",
+                "risk_note",
+                "source_url",
+            ]
+        ],
+        width="stretch",
+        hide_index=True,
+    )
+
+    top_item = get_top_evaluation_item(evaluation_report)
+    if top_item:
+        candidate = top_item.get("candidate_material", {})
+        decision = top_item.get("decision_context", {})
+        st.success(
+            f"현재 후보: {candidate.get('vendor_name')} / {candidate.get('candidate_id')} "
+            f"({decision.get('decision')})"
+        )
+        st.caption(f"출처 URL: {candidate.get('source_url')}")
+
+
+def render_po() -> None:
+    if PO_FILE.exists():
+        st.subheader("PO 초안")
+        st.dataframe(pd.read_csv(PO_FILE), width="stretch", hide_index=True)
+
+
+def render_assistant(event: dict) -> None:
     st.subheader("AI Personal Assistant")
-    st.caption("웹 리서치 결과를 검토하고 승인하는 Human-in-the-loop 창")
-    
-    # 채팅화면 박스 (고정 높이)
-    chat_container = st.container(height=550)
-    
-    # 이전 대화 내용 그대로 출력
-    with chat_container:
-        for msg in st.session_state.messages:
-            with st.chat_message(msg["role"]):
-                st.markdown(msg["content"])
-                
-    # 챗봇 입력창
-    if prompt := st.chat_input("명령어 입력 (ex. 대체품 찾아줘, 승인할게)"):
-        
-        # 1. 유저 메시지 기록
-        st.session_state.messages.append({"role": "user", "content": prompt})
-        with chat_container:
-            with st.chat_message("user"):
-                st.markdown(prompt)
-        
-        # 2. AI 응답 로직 (간단한 키워드 매칭으로 시연 최적화)
-        with chat_container:
-            with st.chat_message("assistant"):
-                message_placeholder = st.empty()
-                full_response = ""
-                
-                # 시나리오 트리거
-                if "재고" in prompt or "위험" in prompt:
-                    st.session_state.step = 1
-                    st.session_state.approval_ready = False
-                    shortage = get_shortage()
-                    full_response = f"현재 **{shortage['material_id']} ({shortage['material_name']})**의 재고가 {shortage['current_stock']}개로 안전재고({shortage['safety_stock']}개)를 밑돌고 있습니다.\n\n자재 스펙을 기반으로 웹에서 대체 후보를 검색하고 출처 신뢰도까지 검증할까요?"
-                
-                elif "대체" in prompt or "찾아" in prompt or "업체" in prompt or "검색" in prompt:
-                    st.session_state.step = 2
-                    st.session_state.approval_ready = True
-                    shortage = get_shortage()
-                    report = load_latest_evaluation_report()
-                    selected_item = get_recommendation_from_report(report) if report else None
-                    if selected_item:
-                        candidate = selected_item["candidate_material"]
-                        scores = selected_item["scores"]
-                        decision = selected_item["decision_context"]
-                        total = int(candidate.get("price_krw") or 0) * shortage["shortage_qty"]
-                        full_response = f"왼쪽 대시보드에 Phase 3 평가 결과를 띄웠습니다.\n\n1순위는 **{candidate['vendor_name']}**의 **{candidate['candidate_id']}**입니다. 최종 점수 {scores['final_score']}점, 출처 신뢰도 {scores['source_trust_score']}점, 납기 {candidate['lead_time_days']}일입니다.\n\n예상 발주 금액은 {total:,}원으로 예산 한도({BUDGET_LIMIT_KRW:,}원) 내입니다. 판단: {decision['recommendation_reason']} 최종 승인하시겠습니까?"
-                    else:
-                        _, _, _, best = get_recommendation()
-                        total = int(best["UNIT_PRICE_KRW"]) * shortage["shortage_qty"]
-                        full_response = f"왼쪽 대시보드에 웹 검색 후보와 1차 검증 결과를 띄웠습니다.\n\n1순위는 **{best['VENDOR_NAME']}**의 **{best['MATERIAL_ID']}**입니다. 기술 호환성 {best['TECH_COMPATIBILITY_PERCENT']}%, 출처 신뢰도 {best['SOURCE_RELIABILITY_SCORE']}점, 납기 {best['LEAD_TIME_DAYS']}일입니다.\n\n예상 발주 금액은 {total:,}원으로 예산 한도({BUDGET_LIMIT_KRW:,}원) 내입니다. 다만 {best['RISK_NOTE']} 최종 승인하시겠습니까?"
-                    # Streamlit 화면 즉시 렌더링을 위해 rerun 효과
+    st.caption("Phase 4 승인 게이트를 거쳐 PO 초안을 생성합니다.")
 
-                elif "반려" in prompt or "거절" in prompt or "보류" in prompt or "중단" in prompt:
-                    st.session_state.step = 2
-                    st.session_state.approval_ready = False
-                    full_response = "요청을 보류했습니다. PO 초안은 생성하지 않았습니다.\n\n필요하면 검색 조건을 바꿔 다른 후보를 다시 찾겠습니다."
-                    
-                elif "발주" in prompt or "승인" in prompt or "진행" in prompt or "응" in prompt or "어" in prompt:
-                    if not st.session_state.approval_ready:
-                        full_response = "아직 승인할 검증 리포트가 없습니다. 먼저 `대체품 찾아줘`라고 입력해 후보와 출처 신뢰도 검증 결과를 확인해주세요."
-                    else:
-                        st.session_state.step = 3
-                        st.session_state.approval_ready = False
-                        shortage = get_shortage()
-                        report = load_latest_evaluation_report()
-                        selected_item = get_recommendation_from_report(report) if report else None
-                        if selected_item:
-                            po_row = create_po_draft_from_report(shortage, report, selected_item)
-                        else:
-                            _, _, _, best = get_recommendation()
-                            po_row = create_po_draft(shortage, best)
-                        full_response = f"**[승인 완료 및 PO 초안 생성]**\n\n사용자 승인에 따라 `{os.path.basename(PO_FILE)}` 파일을 생성했습니다.\n\n전표 초안: {po_row['PO_DRAFT_NO']}\n업체: {po_row['VENDOR_NAME']}\n수량: {po_row['ORDER_QTY']}개\n예상 금액: {po_row['TOTAL_AMOUNT_KRW']:,}원\n\n실제 SAP 전송 전 검토용 Mock 결과물입니다."
-                
-                else:
-                    full_response = "말씀하신 내용을 이해하지 못했습니다. (팁: '재고 확인해줘' -> '대체품 찾아줘' -> '승인할게' 순서로 입력해보세요)"
-                
-                # 타이핑 애니메이션 효과
-                if full_response:
-                    displayed_text = ""
-                    for chunk in full_response.split():
-                        displayed_text += chunk + " "
-                        message_placeholder.markdown(displayed_text + "▌")
-                        time.sleep(0.04)
-                    message_placeholder.markdown(displayed_text)
-                    st.session_state.messages.append({"role": "assistant", "content": full_response})
-                    
-        # Step 2일 경우 대시보드 업데이트를 위해 화면 전체 새로고침
-        if st.session_state.step == 2:
-            time.sleep(0.5)
-            st.rerun()
+    with st.container(height=500):
+        for message in st.session_state.messages:
+            with st.chat_message(message["role"]):
+                st.markdown(message["content"])
+
+    prompt = st.chat_input("재고 확인해줘 / 대체품 찾아줘 / 승인 / 반려")
+    if prompt:
+        st.session_state.messages.append({"role": "user", "content": prompt})
+        response = assistant_reply(prompt, event)
+        st.session_state.messages.append({"role": "assistant", "content": response})
+        st.rerun()
+
+    cols = st.columns(2)
+    if cols[0].button("상태 초기화", width="stretch"):
+        reset_demo_state()
+        st.rerun()
+    if cols[1].button("검색 실행", width="stretch"):
+        response = assistant_reply("대체품 찾아줘", event)
+        st.session_state.messages.append({"role": "assistant", "content": response})
+        st.rerun()
+
+
+def main() -> None:
+    initialize_session()
+    inventory = load_inventory_from_db()
+    shortages = shortage_rows(inventory)
+
+    st.title("BuyBee 실제 데이터 대체 자재 승인 대시보드")
+    st.caption("SQLite 재고 DB에서 부족 자재를 읽고, Phase 4 승인 게이트 이후에만 PO 초안을 생성합니다.")
+
+    if shortages.empty:
+        st.success("현재 부족 자재가 없습니다.")
+        return
+
+    selected_default = default_selected_material(shortages)
+    selected_material = st.sidebar.selectbox(
+        "부족 자재 선택",
+        list(shortages["material_id"]),
+        index=list(shortages["material_id"]).index(selected_default),
+    )
+    st.session_state.selected_material_id = selected_material
+
+    events = shortage_events_by_material()
+    event = events[selected_material]
+
+    st.sidebar.markdown("**검색 설정**")
+    st.sidebar.write("검색 제공자:", "SerpAPI" if os.environ.get("SERPAPI_API_KEY") else "llm_plan")
+    st.sidebar.write("상세 추출:", "OpenAI LLM" if os.environ.get("OPENAI_API_KEY") else "검색 결과 스니펫")
+    if not os.environ.get("SERPAPI_API_KEY"):
+        st.sidebar.info("SERPAPI_API_KEY가 없어 오프라인 검색 계획 모드로 실행됩니다.")
+
+    top_metrics = st.columns(4)
+    top_metrics[0].metric("선택 자재", event["material_id"])
+    top_metrics[1].metric("카테고리", event["category"])
+    top_metrics[2].metric("부족 수량", f"{event['shortage_qty']:,}")
+    top_metrics[3].metric("승인 상태", "대기" if st.session_state.approval_ready else "잠김")
+
+    left, right = st.columns([7, 3.2], gap="large")
+    with left:
+        render_inventory(inventory, shortages)
+        st.divider()
+        render_pipeline_results(event)
+        st.divider()
+        render_po()
+    with right:
+        render_assistant(event)
+
+
+if __name__ == "__main__":
+    main()

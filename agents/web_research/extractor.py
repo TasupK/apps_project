@@ -185,20 +185,27 @@ def _has_stock_signal(text: str) -> bool:
 
 def _extract_lead_time_days(text: str) -> int | None:
     lowered = str(text or "").lower()
-    if any(term in lowered for term in ["ships today", "same day", "당일 출고", "당일출고"]):
+    if any(term in lowered for term in ["ships today", "same day", "당일 출고", "당일출고", "당일배송"]):
         return 0
     patterns = [
-        r"ships?\s+(?:in|within)\s+([0-9]+)\s+(?:business\s+)?days?",
-        r"lead\s*time\s*[:\-]?\s*([0-9]+)\s+days?",
-        r"([0-9]+)\s*(?:business\s+)?days?\s+to\s+ship",
-        r"납기\s*[:\-]?\s*([0-9]+)\s*일",
-        r"([0-9]+)\s*일(?:째)?\s*출하",
-        r"출하일\s*[:\-]?\s*([0-9]+)\s*일",
+        (r"ships?\s+(?:in|within)\s+([0-9]+)(?:\s*(?:-|~|to)\s*([0-9]+))?\s+(?:business\s+)?days?", 1),
+        (r"lead\s*time\s*[:\-]?\s*([0-9]+)(?:\s*(?:-|~|to)\s*([0-9]+))?\s+days?", 1),
+        (r"([0-9]+)(?:\s*(?:-|~|to)\s*([0-9]+))?\s*(?:business\s+)?days?\s+to\s+ship", 1),
+        (r"usually\s+ships?\s+(?:in|within)?\s*([0-9]+)(?:\s*(?:-|~|to)\s*([0-9]+))?\s+(?:business\s+)?days?", 1),
+        (r"(?:납기|출고예정|출고\s*예정|배송예정|배송\s*예정)\s*[:\-]?\s*([0-9]+)(?:\s*(?:-|~|～|에서)\s*([0-9]+))?\s*일", 1),
+        (r"([0-9]+)(?:\s*(?:-|~|～)\s*([0-9]+))?\s*일(?:째)?\s*(?:출하|출고|배송)", 1),
+        (r"(?:출하일|출고일|배송일)\s*[:\-]?\s*([0-9]+)(?:\s*(?:-|~|～)\s*([0-9]+))?\s*일", 1),
+        (r"ships?\s+(?:in|within)\s+([0-9]+)(?:\s*(?:-|~|to)\s*([0-9]+))?\s+weeks?", 7),
+        (r"lead\s*time\s*[:\-]?\s*([0-9]+)(?:\s*(?:-|~|to)\s*([0-9]+))?\s+weeks?", 7),
+        (r"(?:납기|출고예정|배송예정)\s*[:\-]?\s*([0-9]+)(?:\s*(?:-|~|～)\s*([0-9]+))?\s*주", 7),
     ]
-    for pattern in patterns:
+    for pattern, multiplier in patterns:
         match = re.search(pattern, lowered, flags=re.IGNORECASE)
         if match:
-            return _to_int_or_none(match.group(1))
+            values = [_to_int_or_none(group) for group in match.groups() if group]
+            values = [value for value in values if value is not None]
+            if values:
+                return max(values) * multiplier
     return None
 
 
@@ -256,14 +263,18 @@ def _empty_to_none(value: object) -> str | None:
 
 
 def _to_int_or_none(value: object) -> int | None:
-    text = str(value or "").strip()
+    if value is None:
+        return None
+    text = str(value).strip()
     if not text:
         return None
     return round(float(text.replace(",", "")))
 
 
 def _to_float_or_none(value: object) -> float | None:
-    text = str(value or "").strip()
+    if value is None:
+        return None
+    text = str(value).strip()
     if not text:
         return None
     return float(text.replace(",", ""))
