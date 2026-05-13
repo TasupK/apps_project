@@ -568,6 +568,7 @@ def build_candidate_table(candidate_results: dict | None, evaluation_report: dic
             scores = item.get("scores", {})
             decision = item.get("decision_context", {})
             trust_notes = item.get("source_trust_notes", {})
+            vendor_notes = item.get("vendor_trust_notes", {})
             rows.append(
                 {
                     "candidate_id": candidate.get("candidate_id"),
@@ -578,9 +579,10 @@ def build_candidate_table(candidate_results: dict | None, evaluation_report: dic
                     "lead_time_days": candidate.get("lead_time_days"),
                     "source_type": candidate.get("source_type"),
                     "compatibility_score": scores.get("compatibility_score"),
+                    "vendor_trust_score": scores.get("vendor_trust_score"),
                     "source_trust_score": scores.get("source_trust_score"),
                     "final_score": scores.get("final_score"),
-                    "risk_note": " / ".join(trust_notes.get("risk_factors", []))
+                    "risk_note": " / ".join(vendor_notes.get("risk_factors", []) + trust_notes.get("risk_factors", []))
                     or decision.get("recommendation_reason"),
                     "source_url": candidate.get("source_url"),
                 }
@@ -599,6 +601,7 @@ def build_candidate_table(candidate_results: dict | None, evaluation_report: dic
                 "lead_time_days": candidate.get("lead_time_days"),
                 "source_type": candidate.get("source_type"),
                 "compatibility_score": None,
+                "vendor_trust_score": None,
                 "source_trust_score": None,
                 "final_score": None,
                 "risk_note": candidate.get("spec_evidence"),
@@ -973,7 +976,7 @@ def render_pipeline_results(event: dict) -> None:
         table[[
             "candidate_id", "vendor_name", "decision", "risk_level",
             "price_krw", "lead_time_days", "source_type",
-            "compatibility_score", "source_trust_score", "final_score",
+            "compatibility_score", "vendor_trust_score", "source_trust_score", "final_score",
             "risk_note", "source_url",
         ]],
         use_container_width=True,
@@ -1107,7 +1110,8 @@ def build_excel_report(event: dict) -> bytes:
             "decision": "결정", "risk_level": "리스크",
             "price_krw": "단가(원)", "lead_time_days": "납기(일)",
             "source_type": "출처 유형",
-            "compatibility_score": "호환성", "source_trust_score": "신뢰도",
+            "compatibility_score": "호환성", "vendor_trust_score": "공급사 신뢰도",
+            "source_trust_score": "출처 신뢰도",
             "final_score": "최종점수", "risk_note": "리스크 메모",
             "source_url": "출처 URL",
         }

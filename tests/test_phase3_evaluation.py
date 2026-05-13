@@ -19,8 +19,8 @@ from tools.spec_normalizer import parse_fastener_spec
 def build_candidate(spec_text: str, source_type: str = "official_distributor") -> dict:
     return {
         "candidate_id": "CAND-001",
-        "vendor_name": "Vendor",
-        "source_url": "https://example.com/item",
+        "vendor_name": "MISUMI Korea",
+        "source_url": "https://example.com/misumi/item",
         "source_type": source_type,
         "price_krw": 450,
         "min_price_krw": 450,
@@ -187,6 +187,22 @@ class Phase3EvaluationTests(unittest.TestCase):
         report = evaluate_fastener_candidate(TARGET, candidate)
         self.assertEqual(report["decision_context"]["decision"], "review_required")
 
+    def test_vendor_trust_gate_requires_manual_review_for_unknown_vendor(self):
+        candidate = build_candidate("Hex head bolt M10 thread pitch 1.5 length 50mm. Stainless steel 304.")
+        candidate["vendor_name"] = "Unknown Seller"
+        candidate["source_url"] = "https://example.com/unknown/item"
+        report = evaluate_fastener_candidate(TARGET, candidate)
+        self.assertEqual(report["decision_context"]["decision"], "review_required")
+        self.assertLess(report["scores"]["vendor_trust_score"], 60)
+
+    def test_blocked_vendor_is_rejected_before_scoring_rank(self):
+        candidate = build_candidate("Hex head bolt M10 thread pitch 1.5 length 50mm. Stainless steel 304.")
+        candidate["vendor_approved_status"] = "blocked"
+        candidate["risk_flag"] = "blocked"
+        report = evaluate_fastener_candidate(TARGET, candidate)
+        self.assertEqual(report["decision_context"]["decision"], "reject")
+        self.assertIn("공급사", report["decision_context"]["recommendation_reason"])
+
     def test_load_fastener_inputs_from_csv(self):
         target, candidate = load_fastener_inputs_from_csv()
         self.assertEqual(target["material_id"], "MAT-3001")
@@ -299,14 +315,14 @@ class Phase3EvaluationTests(unittest.TestCase):
                 {
                     "candidate_id": "LIVE-BRG",
                     "candidate_material_id": None,
-                    "vendor_name": "Bearing Supplier",
+                    "vendor_name": "MISUMI Korea",
                     "price_krw": 15000,
                     "min_price_krw": 15000,
                     "lead_time_days": 2,
                     "moq": None,
                     "location": "Domestic",
                     "source_type": "official_distributor",
-                    "source_url": "https://example.com/bearing",
+                    "source_url": "https://example.com/misumi/bearing",
                     "price_listed": True,
                     "stock_listed": True,
                     "leadtime_listed": True,
