@@ -61,7 +61,7 @@ def generate_query_candidates(
     except RuntimeError:
         return fallback_queries
 
-    return _dedupe_queries(llm_queries + fallback_queries)
+    return _dedupe_queries(fallback_queries + llm_queries)
 
 
 def generate_query_candidates_with_llm(

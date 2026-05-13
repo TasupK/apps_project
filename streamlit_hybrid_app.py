@@ -484,6 +484,25 @@ def reset_demo_state() -> None:
     initialize_session()
 
 
+def clear_pipeline_state_for_material_change(selected_material_id: str) -> None:
+    previous_material_id = st.session_state.get("active_pipeline_material_id")
+    if previous_material_id in (None, selected_material_id):
+        st.session_state.active_pipeline_material_id = selected_material_id
+        return
+
+    for key in [
+        "candidate_results",
+        "evaluation_report",
+        "approval_ready",
+        "po_row",
+        "last_error",
+    ]:
+        st.session_state.pop(key, None)
+    st.session_state.step = "idle"
+    st.session_state.active_pipeline_material_id = selected_material_id
+    initialize_session()
+
+
 def shortage_rows(inventory: pd.DataFrame) -> pd.DataFrame:
     shortage = inventory[inventory["current_stock"] < inventory["safety_stock"]].copy()
     shortage["shortage_qty"] = shortage["safety_stock"] - shortage["current_stock"]
@@ -554,6 +573,7 @@ def build_candidate_table(candidate_results: dict | None, evaluation_report: dic
             scores = item.get("scores", {})
             decision = item.get("decision_context", {})
             trust_notes = item.get("source_trust_notes", {})
+            vendor_notes = item.get("vendor_trust_notes", {})
             rows.append(
                 {
                     "candidate_id": candidate.get("candidate_id"),
@@ -564,9 +584,10 @@ def build_candidate_table(candidate_results: dict | None, evaluation_report: dic
                     "lead_time_days": candidate.get("lead_time_days"),
                     "source_type": candidate.get("source_type"),
                     "compatibility_score": scores.get("compatibility_score"),
+                    "vendor_trust_score": scores.get("vendor_trust_score"),
                     "source_trust_score": scores.get("source_trust_score"),
                     "final_score": scores.get("final_score"),
-                    "risk_note": " / ".join(trust_notes.get("risk_factors", []))
+                    "risk_note": " / ".join(vendor_notes.get("risk_factors", []) + trust_notes.get("risk_factors", []))
                     or decision.get("recommendation_reason"),
                     "source_url": candidate.get("source_url"),
                 }
@@ -585,6 +606,7 @@ def build_candidate_table(candidate_results: dict | None, evaluation_report: dic
                 "lead_time_days": candidate.get("lead_time_days"),
                 "source_type": candidate.get("source_type"),
                 "compatibility_score": None,
+                "vendor_trust_score": None,
                 "source_trust_score": None,
                 "final_score": None,
                 "risk_note": candidate.get("spec_evidence"),
@@ -691,6 +713,7 @@ def assistant_reply(prompt: str, event: dict) -> str:
 
         st.session_state.candidate_results = candidate_results
         st.session_state.evaluation_report = evaluation_report
+        st.session_state.active_pipeline_material_id = event["material_id"]
         st.session_state.step = "candidates_loaded"
 
         table = build_candidate_table(candidate_results, evaluation_report)
@@ -919,6 +942,14 @@ def render_pipeline_results(event: dict) -> None:
         st.info("아직 웹 검색을 실행하지 않았습니다. 우측 어시스턴트에서 **대체품 찾아줘**를 입력하세요.")
         return
 
+    if candidate_results.get("material_id") != event.get("material_id"):
+        st.warning("선택한 부족 자재와 검색 결과가 달라 결과를 초기화했습니다. 다시 검색을 실행하세요.")
+        st.session_state.candidate_results = None
+        st.session_state.evaluation_report = None
+        st.session_state.approval_ready = False
+        st.session_state.step = "idle"
+        st.rerun()
+
     c1, c2, c3, c4 = st.columns(4)
     c1.metric("검색 ID", candidate_results.get("search_id", "-"))
     c2.metric("후보 수", len(candidate_results.get("candidates", [])))
@@ -950,7 +981,7 @@ def render_pipeline_results(event: dict) -> None:
         table[[
             "candidate_id", "vendor_name", "decision", "risk_level",
             "price_krw", "lead_time_days", "source_type",
-            "compatibility_score", "source_trust_score", "final_score",
+            "compatibility_score", "vendor_trust_score", "source_trust_score", "final_score",
             "risk_note", "source_url",
         ]],
         use_container_width=True,
@@ -1084,7 +1115,8 @@ def build_excel_report(event: dict) -> bytes:
             "decision": "결정", "risk_level": "리스크",
             "price_krw": "단가(원)", "lead_time_days": "납기(일)",
             "source_type": "출처 유형",
-            "compatibility_score": "호환성", "source_trust_score": "신뢰도",
+            "compatibility_score": "호환성", "vendor_trust_score": "공급사 신뢰도",
+            "source_trust_score": "출처 신뢰도",
             "final_score": "최종점수", "risk_note": "리스크 메모",
             "source_url": "출처 URL",
         }
@@ -1268,6 +1300,7 @@ def main() -> None:
         selected_material = render_sidebar(shortages, selected_default)
 
     st.session_state.selected_material_id = selected_material
+    clear_pipeline_state_for_material_change(selected_material)
 
     events = shortage_events_by_material()
     event = events[selected_material]

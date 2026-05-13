@@ -48,7 +48,10 @@ def build_candidate_results(
         provider=search_provider,
         max_results_per_query=max_results_per_query,
     )
-    verified_results = get_verified_search_results(search_results)[:max_candidates]
+    verified_results = _filter_relevant_search_results(
+        get_verified_search_results(search_results),
+        shortage_event,
+    )[:max_candidates]
     candidates = _candidate_stubs_from_verified_search_results(
         verified_results,
         shortage_event=shortage_event,
@@ -114,6 +117,87 @@ def _candidate_stubs_from_verified_search_results(
             candidate = _enrich_candidate_from_page(candidate, shortage_event, model=llm_model)
         candidates.append(candidate)
     return _apply_min_price(candidates)
+
+
+def _filter_relevant_search_results(results: list[dict], shortage_event: dict) -> list[dict]:
+    """Keep live results anchored to the shortage material before promotion."""
+    return [
+        result
+        for result in results
+        if _search_result_matches_shortage_material(result, shortage_event)
+    ]
+
+
+def _search_result_matches_shortage_material(result: dict, shortage_event: dict) -> bool:
+    haystack = _normalize_match_text(
+        " ".join(
+            str(result.get(field) or "")
+            for field in ["title", "url", "snippet"]
+        )
+    )
+    strong_terms, weak_terms = _target_match_terms(shortage_event)
+
+    if any(term in haystack for term in strong_terms):
+        return True
+
+    weak_hits = sum(1 for term in weak_terms if term in haystack)
+    return weak_hits >= 2
+
+
+def _target_match_terms(shortage_event: dict) -> tuple[list[str], list[str]]:
+    raw_terms = [
+        shortage_event.get("material_name"),
+        shortage_event.get("mpn"),
+        shortage_event.get("brand"),
+        *(shortage_event.get("search_keywords") or []),
+    ]
+    strong_terms: list[str] = []
+    weak_terms: list[str] = []
+
+    for raw_term in raw_terms:
+        normalized = _normalize_match_text(raw_term)
+        if not normalized:
+            continue
+        compact = normalized.replace(" ", "")
+        token_terms = [
+            token
+            for token in normalized.split()
+            if len(token) >= 4 or any(char.isdigit() for char in token)
+        ]
+        for term in {normalized, compact, *token_terms}:
+            if _is_strong_match_term(term):
+                strong_terms.append(term)
+            elif len(term) >= 4:
+                weak_terms.append(term)
+
+    for value in (shortage_event.get("spec_attributes") or {}).values():
+        normalized = _normalize_match_text(value)
+        if normalized:
+            weak_terms.append(normalized)
+
+    return _dedupe_match_terms(strong_terms), _dedupe_match_terms(weak_terms)
+
+
+def _is_strong_match_term(term: str) -> bool:
+    if len(term) < 4:
+        return False
+    return any(char.isdigit() for char in term) or "-" in term
+
+
+def _normalize_match_text(value: object) -> str:
+    text = str(value or "").lower()
+    text = re.sub(r"[^0-9a-z가-힣]+", " ", text)
+    return " ".join(text.split())
+
+
+def _dedupe_match_terms(terms: list[str]) -> list[str]:
+    deduped = []
+    seen = set()
+    for term in terms:
+        if term and term not in seen:
+            deduped.append(term)
+            seen.add(term)
+    return deduped
 
 def write_candidate_results(report: dict, output_path: str | Path) -> Path:
     errors = validate_candidate_results(report)

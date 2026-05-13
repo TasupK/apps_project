@@ -5,10 +5,12 @@ from tempfile import TemporaryDirectory
 
 from agents.evaluation_agent import (
     build_batch_report,
+    evaluate_bearing_candidate,
     evaluate_candidates_from_phase2_results,
     evaluate_fastener_candidate,
     evaluate_fastener_candidates_from_csv,
     load_fastener_inputs_from_csv,
+    parse_bearing_spec,
 )
 from agents.reporting_agent import write_evaluation_report
 from tools.spec_normalizer import parse_fastener_spec
@@ -17,8 +19,8 @@ from tools.spec_normalizer import parse_fastener_spec
 def build_candidate(spec_text: str, source_type: str = "official_distributor") -> dict:
     return {
         "candidate_id": "CAND-001",
-        "vendor_name": "Vendor",
-        "source_url": "https://example.com/item",
+        "vendor_name": "MISUMI Korea",
+        "source_url": "https://example.com/misumi/item",
         "source_type": source_type,
         "price_krw": 450,
         "min_price_krw": 450,
@@ -39,6 +41,11 @@ TARGET = {
 }
 
 PHASE2_FASTENER_RESULTS = Path(__file__).resolve().parents[1] / "output" / "candidate_results.fastener.json"
+BEARING_TARGET = {
+    "material_id": "MAT-BRG-002",
+    "description": "Angular Contact Bearing 7005-CTY",
+    "spec_text": "Angular Contact Bearing 7005-CTY. ID: 25mm, OD: 47mm, Width: 12mm. P4S precision class. Steel.",
+}
 
 
 class Phase3EvaluationTests(unittest.TestCase):
@@ -49,6 +56,43 @@ class Phase3EvaluationTests(unittest.TestCase):
         self.assertEqual(parsed.length_mm, 50)
         self.assertEqual(parsed.thread_system, "Metric")
         self.assertEqual(parsed.material, "SUS304")
+
+    def test_parse_bearing_spec(self):
+        parsed = parse_bearing_spec("SKF 7005 CD/P4A 1 Row Ball Bearing - 25 mm ID, 47 mm OD 12 mm Race Width.")
+        self.assertEqual(parsed.bearing_code, "7005-CD")
+        self.assertEqual(parsed.inner_diameter_mm, 25)
+        self.assertEqual(parsed.outer_diameter_mm, 47)
+        self.assertEqual(parsed.width_mm, 12)
+        self.assertEqual(parsed.precision_class, "P4A")
+
+    def test_bearing_recommend_on_matching_core_dimensions(self):
+        candidate = build_candidate(
+            "SKF 7005 CD/P4S Angular Contact Ball Bearing - 25 mm ID, 47 mm OD 12 mm Race Width. Steel."
+        )
+        report = evaluate_bearing_candidate(BEARING_TARGET, candidate)
+        self.assertEqual(report["decision_context"]["decision"], "recommend")
+        self.assertGreaterEqual(report["scores"]["compatibility_score"], 90)
+
+    def test_bearing_reject_on_dimension_mismatch(self):
+        candidate = build_candidate(
+            "SKF 7005 CD/P4S Angular Contact Ball Bearing - 25 mm ID, 52 mm OD 12 mm Race Width. Steel."
+        )
+        report = evaluate_bearing_candidate(BEARING_TARGET, candidate)
+        self.assertEqual(report["decision_context"]["decision"], "reject")
+
+    def test_bearing_review_required_when_specs_are_incomplete(self):
+        candidate = build_candidate("Angular Contact Ball Bearing 7005. Price listed.")
+        report = evaluate_bearing_candidate(BEARING_TARGET, candidate)
+        self.assertEqual(report["decision_context"]["decision"], "review_required")
+
+    def test_bearing_conditionally_approves_same_precision_grade_suffix(self):
+        candidate = build_candidate(
+            "SKF 7005 CD/P4A 1 Row Ball Bearing - 25 mm ID, 47 mm OD 12 mm Race Width."
+        )
+        candidate["source_type"] = "unknown"
+        candidate["source_url"] = "https://kr.rs-online.com/web/p/ball-bearings/0461864"
+        report = evaluate_bearing_candidate(BEARING_TARGET, candidate)
+        self.assertEqual(report["decision_context"]["decision"], "conditional_approve")
 
     def test_parse_compact_metric_spec_without_pitch(self):
         parsed = parse_fastener_spec("SUS304 Hex Socket Bolt M10x50 L50mm")
@@ -142,6 +186,22 @@ class Phase3EvaluationTests(unittest.TestCase):
         candidate = build_candidate("Hex head bolt M10 thread pitch 1.5 length 50mm.")
         report = evaluate_fastener_candidate(TARGET, candidate)
         self.assertEqual(report["decision_context"]["decision"], "review_required")
+
+    def test_vendor_trust_gate_requires_manual_review_for_unknown_vendor(self):
+        candidate = build_candidate("Hex head bolt M10 thread pitch 1.5 length 50mm. Stainless steel 304.")
+        candidate["vendor_name"] = "Unknown Seller"
+        candidate["source_url"] = "https://example.com/unknown/item"
+        report = evaluate_fastener_candidate(TARGET, candidate)
+        self.assertEqual(report["decision_context"]["decision"], "review_required")
+        self.assertLess(report["scores"]["vendor_trust_score"], 60)
+
+    def test_blocked_vendor_is_rejected_before_scoring_rank(self):
+        candidate = build_candidate("Hex head bolt M10 thread pitch 1.5 length 50mm. Stainless steel 304.")
+        candidate["vendor_approved_status"] = "blocked"
+        candidate["risk_flag"] = "blocked"
+        report = evaluate_fastener_candidate(TARGET, candidate)
+        self.assertEqual(report["decision_context"]["decision"], "reject")
+        self.assertIn("공급사", report["decision_context"]["recommendation_reason"])
 
     def test_load_fastener_inputs_from_csv(self):
         target, candidate = load_fastener_inputs_from_csv()
@@ -245,28 +305,28 @@ class Phase3EvaluationTests(unittest.TestCase):
         self.assertEqual(item["scores"]["price_score"], 40)
         self.assertEqual(item["scores"]["lead_time_score"], 35)
 
-    def test_unsupported_phase2_category_requires_manual_review(self):
+    def test_phase2_bearing_results_are_evaluated(self):
         candidate_results = {
             "material_id": "MAT-BRG-001",
             "material_name": "Ball Bearing 6204-ZZ",
             "category": "Bearing",
-            "target_spec_text": "Deep groove ball bearing 6204-ZZ.",
+            "target_spec_text": "Deep groove ball bearing 6204-ZZ. ID: 20mm, OD: 47mm, Width: 14mm. Steel material.",
             "candidates": [
                 {
                     "candidate_id": "LIVE-BRG",
                     "candidate_material_id": None,
-                    "vendor_name": "Bearing Supplier",
+                    "vendor_name": "MISUMI Korea",
                     "price_krw": 15000,
                     "min_price_krw": 15000,
                     "lead_time_days": 2,
                     "moq": None,
                     "location": "Domestic",
                     "source_type": "official_distributor",
-                    "source_url": "https://example.com/bearing",
+                    "source_url": "https://example.com/misumi/bearing",
                     "price_listed": True,
                     "stock_listed": True,
                     "leadtime_listed": True,
-                    "spec_text": "6204-ZZ bearing 20mm ID 47mm OD 14mm width.",
+                    "spec_text": "6204-ZZ deep groove ball bearing 20mm ID 47mm OD 14mm width steel.",
                     "spec_evidence": "Supplier page lists bearing dimensions.",
                 }
             ],
@@ -275,9 +335,8 @@ class Phase3EvaluationTests(unittest.TestCase):
             path = Path(temp_dir) / "candidate_results.json"
             path.write_text(json.dumps(candidate_results, ensure_ascii=False), encoding="utf-8")
             batch = evaluate_candidates_from_phase2_results(path)
-        self.assertEqual(batch["next_action"], "manual_review")
-        self.assertEqual(batch["items"][0]["decision_context"]["decision"], "review_required")
-        self.assertIn("지원하지 않는 카테고리", batch["items"][0]["decision_context"]["recommendation_reason"])
+        self.assertEqual(batch["next_action"], "approval_pending")
+        self.assertEqual(batch["items"][0]["decision_context"]["decision"], "recommend")
 
 
 if __name__ == "__main__":

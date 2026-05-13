@@ -234,9 +234,9 @@ def _infer_source_type(url: object, title: object = None, snippet: object = None
     text = " ".join(str(value or "").lower() for value in [url, title, snippet])
     if any(token in text for token in ["manufacturer", "datasheet", "catalog"]):
         return "manufacturer_page"
-    if any(token in text for token in ["misumi", "mcmaster", "digikey", "mouser", "authorized", "official distributor"]):
+    if any(token in text for token in ["misumi", "mcmaster", "digikey", "mouser", "rs-online", "rs online", "authorized", "official distributor"]):
         return "official_distributor"
-    if any(token in text for token in ["industrial", "industry", "daara"]):
+    if any(token in text for token in ["industrial", "industry", "daara", "bearingworks"]):
         return "industrial_marketplace"
     if any(token in text for token in ["amazon", "ebay", "aliexpress", "marketplace", "open market"]):
         return "marketplace"

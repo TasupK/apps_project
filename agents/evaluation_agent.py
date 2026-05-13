@@ -2,12 +2,13 @@
 
 from __future__ import annotations
 
-from dataclasses import asdict
+from dataclasses import asdict, dataclass
 from datetime import datetime
 import argparse
 import csv
 import json
 from pathlib import Path
+import re
 import sys
 
 
@@ -25,7 +26,18 @@ DEFAULT_VENDOR_SOURCING = PROJECT_ROOT / "vendor_sourcing.csv"
 DEFAULT_CANDIDATE_RESULTS = PROJECT_ROOT / "output" / "candidate_results.json"
 DEFAULT_OUTPUT = PROJECT_ROOT / "output" / "evaluation_report.json"
 DEFAULT_BATCH_OUTPUT = PROJECT_ROOT / "output" / "evaluation_report_batch.json"
-SUPPORTED_PHASE2_CATEGORIES = {"Fastener"}
+SUPPORTED_PHASE2_CATEGORIES = {"Bearing", "Fastener"}
+
+
+@dataclass(frozen=True)
+class BearingSpec:
+    bearing_code: str | None
+    bearing_type: str | None
+    inner_diameter_mm: int | None
+    outer_diameter_mm: int | None
+    width_mm: int | None
+    precision_class: str | None
+    material: str | None
 
 
 MATERIAL_GROUPS = {
@@ -69,18 +81,68 @@ SOURCE_TYPE_BREAKDOWN = {
 
 WEIGHTS = {
     "normal": {
-        "compatibility_score": 50,
-        "lead_time_score": 20,
-        "price_score": 15,
-        "moq_score": 10,
-        "source_trust_score": 5,
-    },
-    "urgent": {
-        "compatibility_score": 50,
-        "lead_time_score": 30,
+        "compatibility_score": 40,
+        "vendor_trust_score": 25,
+        "lead_time_score": 15,
         "price_score": 10,
         "moq_score": 5,
         "source_trust_score": 5,
+    },
+    "urgent": {
+        "compatibility_score": 40,
+        "vendor_trust_score": 25,
+        "lead_time_score": 15,
+        "price_score": 10,
+        "moq_score": 5,
+        "source_trust_score": 5,
+    },
+}
+
+VENDOR_PROFILES = {
+    "misumi": {
+        "label": "MISUMI",
+        "approved_status": "approved",
+        "on_time_delivery_rate": 0.97,
+        "quality_issue_rate": 0.005,
+        "transaction_count": 42,
+        "operational_fit": "good",
+        "risk_flag": "none",
+    },
+    "rs-online": {
+        "label": "RS Online",
+        "approved_status": "approved",
+        "on_time_delivery_rate": 0.94,
+        "quality_issue_rate": 0.012,
+        "transaction_count": 18,
+        "operational_fit": "good",
+        "risk_flag": "none",
+    },
+    "bearingworks": {
+        "label": "Bearing Works",
+        "approved_status": "conditional",
+        "on_time_delivery_rate": 0.86,
+        "quality_issue_rate": 0.025,
+        "transaction_count": 7,
+        "operational_fit": "partial",
+        "risk_flag": "minor",
+    },
+    "daara": {
+        "label": "Daara",
+        "approved_status": "conditional",
+        "on_time_delivery_rate": 0.90,
+        "quality_issue_rate": 0.02,
+        "transaction_count": 8,
+        "operational_fit": "partial",
+        "risk_flag": "minor",
+    },
+    "mcmaster": {
+        "label": "McMaster-Carr",
+        "approved_status": "approved",
+        "on_time_delivery_rate": 0.96,
+        "quality_issue_rate": 0.006,
+        "transaction_count": 24,
+        "operational_fit": "partial",
+        "risk_flag": "none",
     },
 }
 
@@ -127,6 +189,90 @@ def _material_decision(original: str | None, candidate: str | None) -> tuple[str
     return "review_required", "Medium", "재질이 하향되어 구매 담당자와 현장 검토가 필요합니다."
 
 
+def _find_number(pattern: str, text: str) -> int | None:
+    match = re.search(pattern, text, flags=re.IGNORECASE)
+    if not match:
+        return None
+    return round(float(match.group(1)))
+
+
+def _find_bearing_code(text: str) -> str | None:
+    match = re.search(r"\b([67][0-9]{3,4})(?:\s*[-/]?\s*([A-Z]{1,4}[A-Z0-9/]*))?\b", text, flags=re.IGNORECASE)
+    if not match:
+        return None
+    suffix = match.group(2)
+    if suffix:
+        suffix = re.split(r"[/\s]", suffix, maxsplit=1)[0]
+    return f"{match.group(1)}-{suffix.upper()}" if suffix else match.group(1)
+
+
+def _base_bearing_code(code: str | None) -> str | None:
+    if not code:
+        return None
+    match = re.match(r"([67][0-9]{3,4})", code)
+    return match.group(1) if match else code
+
+
+def _normalize_bearing_type(text: str, bearing_code: str | None = None) -> str | None:
+    lowered = text.lower()
+    if "angular contact" in lowered or "앵귤러" in lowered or "앵글러" in lowered:
+        return "angular_contact"
+    base_code = _base_bearing_code(bearing_code)
+    if base_code and base_code.startswith("7"):
+        return "angular_contact"
+    if "deep groove" in lowered or "6200" in lowered or "ball bearing" in lowered or "볼 베어링" in lowered:
+        return "deep_groove_ball"
+    return None
+
+
+def _normalize_bearing_precision(text: str) -> str | None:
+    match = re.search(r"\b(P[0-9][A-Z]?|P4S|CLASS\s*[0-9]|ABEC\s*-?\s*[0-9])\b", text, flags=re.IGNORECASE)
+    return match.group(1).upper().replace(" ", "") if match else None
+
+
+def _normalize_bearing_material(text: str) -> str | None:
+    lowered = text.lower()
+    if "stainless" in lowered or "sus" in lowered:
+        return "STAINLESS"
+    if "steel" in lowered or "스틸" in lowered or "강" in lowered:
+        return "STEEL"
+    return None
+
+
+def parse_bearing_spec(text: str) -> BearingSpec:
+    compact = " ".join(str(text or "").split())
+    bearing_code = _find_bearing_code(compact)
+    dimension_match = re.search(
+        r"\b([0-9]+(?:\.[0-9]+)?)\s*(?:mm)?\s*[xX×]\s*([0-9]+(?:\.[0-9]+)?)\s*(?:mm)?\s*[xX×]\s*([0-9]+(?:\.[0-9]+)?)\s*(?:mm)?\b",
+        compact,
+        flags=re.IGNORECASE,
+    )
+    if dimension_match:
+        inner_diameter = round(float(dimension_match.group(1)))
+        outer_diameter = round(float(dimension_match.group(2)))
+        width = round(float(dimension_match.group(3)))
+    else:
+        inner_diameter = _find_number(r"\b([0-9]+(?:\.[0-9]+)?)\s*mm\s*(?:ID|I\.D\.|inner diameter|bore)\b", compact)
+        if inner_diameter is None:
+            inner_diameter = _find_number(r"\b(?:ID|I\.D\.|inner diameter|bore)\s*[:=]?\s*([0-9]+(?:\.[0-9]+)?)\s*mm\b", compact)
+        outer_diameter = _find_number(r"\b([0-9]+(?:\.[0-9]+)?)\s*mm\s*(?:OD|O\.D\.|outer diameter)\b", compact)
+        if outer_diameter is None:
+            outer_diameter = _find_number(r"\b(?:OD|O\.D\.|outer diameter)\s*[:=]?\s*([0-9]+(?:\.[0-9]+)?)\s*mm\b", compact)
+        width = _find_number(r"\b([0-9]+(?:\.[0-9]+)?)\s*mm\s*(?:Width|Race Width|W)\b", compact)
+        if width is None:
+            width = _find_number(r"\b(?:Width|Race Width|W)\s*[:=]?\s*([0-9]+(?:\.[0-9]+)?)\s*mm\b", compact)
+
+    return BearingSpec(
+        bearing_code=bearing_code,
+        bearing_type=_normalize_bearing_type(compact, bearing_code),
+        inner_diameter_mm=inner_diameter,
+        outer_diameter_mm=outer_diameter,
+        width_mm=width,
+        precision_class=_normalize_bearing_precision(compact),
+        material=_normalize_bearing_material(compact),
+    )
+
+
 def _critical_spec_check(original: FastenerSpec, candidate: FastenerSpec) -> dict:
     diameter_match = original.diameter == candidate.diameter
     pitch_match = original.pitch == candidate.pitch
@@ -167,7 +313,7 @@ def _highlight_differences(original: FastenerSpec, candidate: FastenerSpec) -> l
 
 
 def _source_trust_breakdown(candidate: dict) -> tuple[dict, int, dict]:
-    source_type = _snake_source_type(candidate.get("source_type") or candidate.get("SOURCE_TYPE", "unknown"))
+    source_type = _infer_candidate_source_type(candidate)
     source_meta = SOURCE_TYPE_BREAKDOWN.get(source_type, SOURCE_TYPE_BREAKDOWN["unknown"])
     breakdown = {
         "official_distributor": source_meta["official_distributor"],
@@ -183,6 +329,24 @@ def _source_trust_breakdown(candidate: dict) -> tuple[dict, int, dict]:
     score += 10 if candidate.get("source_url") or candidate.get("SOURCE_URL") else 0
     score = min(score, 100)
     return breakdown, score, _source_trust_notes(source_meta["label"], breakdown, score)
+
+
+def _infer_candidate_source_type(candidate: dict) -> str:
+    source_type = _snake_source_type(candidate.get("source_type") or candidate.get("SOURCE_TYPE", "unknown"))
+    if source_type != "unknown":
+        return source_type
+
+    text = " ".join(
+        str(candidate.get(field) or "")
+        for field in ["source_url", "SOURCE_URL", "vendor_name", "VENDOR_NAME"]
+    ).lower()
+    if any(token in text for token in ["misumi", "rs-online", "rs online", "mcmaster", "digikey", "mouser"]):
+        return "official_distributor"
+    if any(token in text for token in ["bearingworks", "industrial", "daara"]):
+        return "industrial_marketplace"
+    if any(token in text for token in ["amazon", "ebay", "aliexpress", "made-in-china"]):
+        return "marketplace"
+    return "unknown"
 
 
 def _source_trust_notes(source_label: str, breakdown: dict, score: int) -> dict:
@@ -215,6 +379,181 @@ def _source_trust_notes(source_label: str, breakdown: dict, score: int) -> dict:
         summary = "출처 신뢰도는 보통 수준이며 주요 표시 정보 확인이 필요합니다."
     else:
         summary = "출처 신뢰도가 낮아 자동 추천보다 사람 검토가 필요합니다."
+
+    return {
+        "summary": summary,
+        "positive_factors": positive_factors,
+        "risk_factors": risk_factors,
+    }
+
+
+def _vendor_trust_breakdown(candidate: dict) -> tuple[dict, int, dict]:
+    profile = _vendor_profile(candidate)
+    breakdown = {
+        "vendor_label": profile["label"],
+        "approved_status": profile["approved_status"],
+        "approved_status_score": _approved_status_score(profile["approved_status"]),
+        "delivery_reliability_score": _delivery_reliability_score(profile.get("on_time_delivery_rate")),
+        "quality_performance_score": _quality_performance_score(profile.get("quality_issue_rate")),
+        "transaction_maturity_score": _transaction_maturity_score(profile.get("transaction_count")),
+        "operational_fit_score": _operational_fit_score(profile.get("operational_fit")),
+        "risk_flag_score": _risk_flag_score(profile.get("risk_flag")),
+        "on_time_delivery_rate": profile.get("on_time_delivery_rate"),
+        "quality_issue_rate": profile.get("quality_issue_rate"),
+        "transaction_count": profile.get("transaction_count"),
+        "operational_fit": profile.get("operational_fit"),
+        "risk_flag": profile.get("risk_flag"),
+    }
+    score = sum(
+        breakdown[field]
+        for field in [
+            "approved_status_score",
+            "delivery_reliability_score",
+            "quality_performance_score",
+            "transaction_maturity_score",
+            "operational_fit_score",
+            "risk_flag_score",
+        ]
+    )
+    return breakdown, score, _vendor_trust_notes(profile["label"], breakdown, score)
+
+
+def _vendor_profile(candidate: dict) -> dict:
+    explicit_status = candidate.get("vendor_approved_status") or candidate.get("VENDOR_APPROVED_STATUS")
+    if explicit_status:
+        return {
+            "label": candidate.get("vendor_name") or candidate.get("VENDOR_NAME") or "Explicit vendor",
+            "approved_status": str(explicit_status).strip().lower(),
+            "on_time_delivery_rate": _optional_float(candidate.get("on_time_delivery_rate") or candidate.get("ON_TIME_DELIVERY_RATE")),
+            "quality_issue_rate": _optional_float(candidate.get("quality_issue_rate") or candidate.get("QUALITY_ISSUE_RATE")),
+            "transaction_count": _optional_int(candidate.get("transaction_count") or candidate.get("TRANSACTION_COUNT")),
+            "operational_fit": str(candidate.get("operational_fit") or candidate.get("OPERATIONAL_FIT") or "unknown").strip().lower(),
+            "risk_flag": str(candidate.get("risk_flag") or candidate.get("RISK_FLAG") or "unknown").strip().lower(),
+        }
+
+    text = " ".join(
+        str(candidate.get(field) or "")
+        for field in ["vendor_name", "VENDOR_NAME", "source_url", "SOURCE_URL"]
+    ).lower()
+    for key, profile in VENDOR_PROFILES.items():
+        if key in text:
+            return dict(profile)
+    return {
+        "label": candidate.get("vendor_name") or candidate.get("VENDOR_NAME") or "Unknown Vendor",
+        "approved_status": "unknown",
+        "on_time_delivery_rate": None,
+        "quality_issue_rate": None,
+        "transaction_count": None,
+        "operational_fit": "unknown",
+        "risk_flag": "unknown",
+    }
+
+
+def _optional_float(raw: object) -> float | None:
+    if raw is None or raw == "":
+        return None
+    return float(raw)
+
+
+def _approved_status_score(status: str | None) -> int:
+    return {
+        "approved": 25,
+        "conditional": 15,
+        "new": 8,
+        "unknown": 5,
+        "blocked": 0,
+    }.get(str(status or "unknown").strip().lower(), 5)
+
+
+def _delivery_reliability_score(rate: float | None) -> int:
+    if rate is None:
+        return 10
+    if rate >= 0.95:
+        return 25
+    if rate >= 0.90:
+        return 20
+    if rate >= 0.80:
+        return 12
+    return 5
+
+
+def _quality_performance_score(rate: float | None) -> int:
+    if rate is None:
+        return 10
+    if rate < 0.01:
+        return 25
+    if rate <= 0.03:
+        return 18
+    if rate <= 0.05:
+        return 10
+    return 3
+
+
+def _transaction_maturity_score(count: int | None) -> int:
+    if count is None:
+        return 2
+    if count >= 20:
+        return 10
+    if count >= 5:
+        return 7
+    if count >= 1:
+        return 4
+    return 2
+
+
+def _operational_fit_score(fit: str | None) -> int:
+    return {
+        "good": 10,
+        "partial": 6,
+        "poor": 3,
+        "unknown": 5,
+    }.get(str(fit or "unknown").strip().lower(), 5)
+
+
+def _risk_flag_score(flag: str | None) -> int:
+    return {
+        "none": 5,
+        "minor": 2,
+        "unknown": 2,
+        "major": 0,
+        "blocked": 0,
+    }.get(str(flag or "unknown").strip().lower(), 2)
+
+
+def _vendor_trust_notes(vendor_label: str, breakdown: dict, score: int) -> dict:
+    positive_factors = []
+    risk_factors = []
+
+    if breakdown["approved_status"] == "approved":
+        positive_factors.append("내부 승인 벤더 또는 신뢰 가능한 기존 공급처로 분류되었습니다.")
+    elif breakdown["approved_status"] == "conditional":
+        risk_factors.append("조건부 승인 벤더라 거래 조건 확인이 필요합니다.")
+    elif breakdown["approved_status"] == "blocked":
+        risk_factors.append("차단 벤더로 자동 발주할 수 없습니다.")
+    else:
+        risk_factors.append("내부 승인 벤더 여부가 확인되지 않았습니다.")
+
+    if breakdown["delivery_reliability_score"] >= 20:
+        positive_factors.append("정시 납품 이력이 양호합니다.")
+    else:
+        risk_factors.append("정시 납품 이력이 부족하거나 낮습니다.")
+
+    if breakdown["quality_performance_score"] >= 18:
+        positive_factors.append("품질 이슈율이 낮은 편입니다.")
+    else:
+        risk_factors.append("품질 이슈 데이터가 부족하거나 주의가 필요합니다.")
+
+    if breakdown["risk_flag_score"] == 5:
+        positive_factors.append("중대한 공급사 리스크 플래그가 없습니다.")
+    else:
+        risk_factors.append("공급사 리스크 플래그 확인이 필요합니다.")
+
+    if score >= 75:
+        summary = f"{vendor_label} 공급사 신뢰도가 높아 자동 승인 후보로 검토할 수 있습니다."
+    elif score >= 60:
+        summary = f"{vendor_label} 공급사 신뢰도는 조건부 승인 수준입니다."
+    else:
+        summary = f"{vendor_label} 공급사 신뢰도가 낮거나 데이터가 부족해 수동 검토가 필요합니다."
 
     return {
         "summary": summary,
@@ -277,6 +616,8 @@ def _decision_context(
     critical_check: dict,
     material_decision: tuple[str, str, str],
     source_trust_score: int,
+    vendor_trust_score: int,
+    vendor_trust_breakdown: dict,
     differences: list[dict],
 ) -> dict:
     decision, risk_level, reason_seed = material_decision
@@ -288,6 +629,26 @@ def _decision_context(
             "approval_conditions": [],
             "rejection_reason": "직경, 피치, 규격 체계, 길이 중 하나 이상의 필수 스펙이 불일치합니다.",
             "review_required": False,
+        }
+
+    if vendor_trust_breakdown.get("approved_status") == "blocked" or vendor_trust_breakdown.get("risk_flag") == "blocked":
+        return {
+            "decision": "reject",
+            "risk_level": "High",
+            "recommendation_reason": "공급사가 차단 또는 고위험 벤더로 분류되어 자동 발주할 수 없습니다.",
+            "approval_conditions": [],
+            "rejection_reason": "공급사 신뢰도 게이트를 통과하지 못했습니다.",
+            "review_required": False,
+        }
+
+    if vendor_trust_score < 60 and decision != "reject":
+        return {
+            "decision": "review_required",
+            "risk_level": "High",
+            "recommendation_reason": "스펙은 유사하지만 공급사 신뢰도가 낮거나 데이터가 부족해 자동 추천할 수 없습니다.",
+            "approval_conditions": [],
+            "rejection_reason": None,
+            "review_required": True,
         }
 
     if source_trust_score < 50 and decision != "reject":
@@ -303,6 +664,196 @@ def _decision_context(
     approval_conditions = []
     if decision == "conditional_approve" and any(item["spec"] == "material" for item in differences):
         approval_conditions.append("재질 대체에 따른 비용 증가와 내식성 요구조건 충족 여부를 확인해야 합니다.")
+    if vendor_trust_score < 75 and decision in {"recommend", "conditional_approve"}:
+        decision = "conditional_approve"
+        risk_level = "Medium"
+        approval_conditions.append("공급사 신뢰도가 조건부 승인 구간이라 구매 담당자 확인이 필요합니다.")
+
+    return {
+        "decision": decision,
+        "risk_level": risk_level,
+        "recommendation_reason": reason_seed,
+        "approval_conditions": approval_conditions,
+        "rejection_reason": None,
+        "review_required": decision == "review_required",
+    }
+
+
+def _bearing_critical_spec_check(original: BearingSpec, candidate: BearingSpec) -> dict:
+    base_code_match = (
+        _base_bearing_code(original.bearing_code) is not None
+        and _base_bearing_code(original.bearing_code) == _base_bearing_code(candidate.bearing_code)
+    )
+    dimension_fields = ["inner_diameter_mm", "outer_diameter_mm", "width_mm"]
+    dimension_matches = {
+        f"{field}_match": getattr(original, field) is not None
+        and getattr(candidate, field) is not None
+        and getattr(original, field) == getattr(candidate, field)
+        for field in dimension_fields
+    }
+    dimension_values_present = all(getattr(original, field) is not None and getattr(candidate, field) is not None for field in dimension_fields)
+    dimensions_match = all(dimension_matches.values())
+    type_match = (
+        original.bearing_type is not None
+        and candidate.bearing_type is not None
+        and original.bearing_type == candidate.bearing_type
+    )
+    precision_match = (
+        original.precision_class is not None
+        and candidate.precision_class is not None
+        and original.precision_class == candidate.precision_class
+    )
+    precision_grade_match = (
+        _bearing_precision_grade(original.precision_class) is not None
+        and _bearing_precision_grade(original.precision_class) == _bearing_precision_grade(candidate.precision_class)
+    )
+
+    critical_mismatch = (
+        (dimension_values_present and not dimensions_match)
+        or (
+            original.bearing_type is not None
+            and candidate.bearing_type is not None
+            and original.bearing_type != candidate.bearing_type
+        )
+        or (
+            original.precision_class is not None
+            and candidate.precision_class is not None
+            and original.precision_class != candidate.precision_class
+            and not precision_grade_match
+        )
+    )
+    original_has_dimensions = all(getattr(original, field) is not None for field in dimension_fields)
+    incomplete_critical_specs = not (
+        (dimensions_match if original_has_dimensions else base_code_match)
+        and (type_match or original.bearing_type is None or candidate.bearing_type is None)
+    )
+
+    return {
+        "base_code_match": base_code_match,
+        "inner_diameter_match": dimension_matches["inner_diameter_mm_match"],
+        "outer_diameter_match": dimension_matches["outer_diameter_mm_match"],
+        "width_match": dimension_matches["width_mm_match"],
+        "dimensions_match": dimensions_match,
+        "type_match": type_match,
+        "precision_match": precision_match,
+        "precision_grade_match": precision_grade_match,
+        "critical_mismatch": critical_mismatch,
+        "incomplete_critical_specs": incomplete_critical_specs,
+    }
+
+
+def _bearing_precision_grade(precision_class: str | None) -> str | None:
+    if not precision_class:
+        return None
+    match = re.search(r"P([0-9])", precision_class.upper())
+    return match.group(1) if match else precision_class.upper()
+
+
+def _highlight_bearing_differences(original: BearingSpec, candidate: BearingSpec) -> list[dict]:
+    impacts = {
+        "bearing_code": "베어링 기본 형번이 다르면 치수와 구조 호환성 확인이 필요합니다.",
+        "bearing_type": "베어링 형식이 달라 하중 방향과 장착 조건이 달라질 수 있습니다.",
+        "inner_diameter_mm": "내경이 달라 샤프트에 장착할 수 없습니다.",
+        "outer_diameter_mm": "외경이 달라 하우징에 장착할 수 없습니다.",
+        "width_mm": "폭이 달라 조립 간섭 또는 고정 문제가 발생할 수 있습니다.",
+        "precision_class": "정밀도 등급이 달라 고속/정밀 장비 적용 전 검토가 필요합니다.",
+        "material": "재질 정보 차이로 내식성 또는 수명 조건 검토가 필요합니다.",
+    }
+    differences = []
+    for field_name, impact in impacts.items():
+        original_value = getattr(original, field_name)
+        candidate_value = getattr(candidate, field_name)
+        if original_value is not None and candidate_value is not None and original_value != candidate_value:
+            differences.append(
+                {
+                    "spec": field_name,
+                    "original": original_value,
+                    "candidate": candidate_value,
+                    "impact": impact,
+                }
+            )
+    return differences
+
+
+def _bearing_material_decision(original: BearingSpec, candidate: BearingSpec, critical_check: dict) -> tuple[str, str, str]:
+    if critical_check["critical_mismatch"]:
+        return "reject", "High", "베어링 핵심 치수, 형식 또는 정밀도 등급이 일치하지 않습니다."
+    if critical_check["incomplete_critical_specs"]:
+        return "review_required", "Medium", "일부 핵심 베어링 스펙이 부족해 구매 담당자 확인이 필요합니다."
+    if original.material and candidate.material and original.material != candidate.material:
+        return "conditional_approve", "Medium", "치수와 형식은 맞지만 재질 차이가 있어 사용 조건 확인이 필요합니다."
+    if original.precision_class and candidate.precision_class and original.precision_class != candidate.precision_class:
+        return "conditional_approve", "Medium", "정밀도 등급 계열은 같지만 세부 접미사가 달라 적용 장비 조건 확인이 필요합니다."
+    if original.precision_class and not candidate.precision_class:
+        return "conditional_approve", "Medium", "치수와 형식은 맞지만 후보의 정밀도 등급 확인이 필요합니다."
+    return "recommend", "Low", "베어링 형번 또는 핵심 치수와 형식이 원본 자재와 일치합니다."
+
+
+def _bearing_compatibility_score(critical_check: dict, material_decision: str) -> int:
+    if critical_check["critical_mismatch"]:
+        return 0
+    if material_decision == "recommend":
+        return 100
+    if material_decision == "conditional_approve":
+        return 86
+    if material_decision == "review_required":
+        return 68
+    return 20
+
+
+def _bearing_decision_context(
+    critical_check: dict,
+    material_decision: tuple[str, str, str],
+    source_trust_score: int,
+    vendor_trust_score: int,
+    vendor_trust_breakdown: dict,
+    differences: list[dict],
+) -> dict:
+    decision, risk_level, reason_seed = material_decision
+    if critical_check["critical_mismatch"]:
+        return {
+            "decision": "reject",
+            "risk_level": "High",
+            "recommendation_reason": "베어링 핵심 스펙이 일치하지 않아 대체재로 추천하지 않습니다.",
+            "approval_conditions": [],
+            "rejection_reason": "내경, 외경, 폭, 형식, 정밀도 중 확인된 핵심 스펙이 불일치합니다.",
+            "review_required": False,
+        }
+    if vendor_trust_breakdown.get("approved_status") == "blocked" or vendor_trust_breakdown.get("risk_flag") == "blocked":
+        return {
+            "decision": "reject",
+            "risk_level": "High",
+            "recommendation_reason": "공급사가 차단 또는 고위험 벤더로 분류되어 자동 발주할 수 없습니다.",
+            "approval_conditions": [],
+            "rejection_reason": "공급사 신뢰도 게이트를 통과하지 못했습니다.",
+            "review_required": False,
+        }
+    if vendor_trust_score < 60 and decision in {"recommend", "conditional_approve"}:
+        return {
+            "decision": "review_required",
+            "risk_level": "High",
+            "recommendation_reason": "베어링 스펙은 유사하지만 공급사 신뢰도가 낮거나 데이터가 부족해 자동 추천할 수 없습니다.",
+            "approval_conditions": [],
+            "rejection_reason": None,
+            "review_required": True,
+        }
+    if source_trust_score < 50 and decision in {"recommend", "conditional_approve"}:
+        return {
+            "decision": "review_required",
+            "risk_level": "High",
+            "recommendation_reason": "베어링 스펙은 유사하지만 출처 신뢰도가 낮아 자동 추천할 수 없습니다.",
+            "approval_conditions": [],
+            "rejection_reason": None,
+            "review_required": True,
+        }
+
+    approval_conditions = []
+    if decision == "conditional_approve":
+        approval_conditions = [item["impact"] for item in differences] or ["정밀도 등급, 재질, 적용 장비 조건을 확인해야 합니다."]
+    if vendor_trust_score < 75 and decision in {"recommend", "conditional_approve"}:
+        decision = "conditional_approve"
+        risk_level = "Medium"
+        approval_conditions.append("공급사 신뢰도가 조건부 승인 구간이라 구매 담당자 확인이 필요합니다.")
 
     return {
         "decision": decision,
@@ -326,9 +877,11 @@ def evaluate_fastener_candidate(
     material_decision = _material_decision(target_spec.material, candidate_spec.material)
     differences = _highlight_differences(target_spec, candidate_spec)
     trust_breakdown, source_trust_score, source_trust_notes = _source_trust_breakdown(candidate_material)
+    vendor_trust_breakdown, vendor_trust_score, vendor_trust_notes = _vendor_trust_breakdown(candidate_material)
 
     scores = {
         "compatibility_score": _compatibility_score(critical_check, material_decision[0]),
+        "vendor_trust_score": vendor_trust_score,
         "source_trust_score": source_trust_score,
         "lead_time_score": _lead_time_score(candidate_material["lead_time_days"]),
         "price_score": _price_score(candidate_material["price_krw"], candidate_material["min_price_krw"]),
@@ -336,7 +889,14 @@ def evaluate_fastener_candidate(
     }
     scores["final_score"] = _weighted_total(scores, mode)
 
-    decision_context = _decision_context(critical_check, material_decision, source_trust_score, differences)
+    decision_context = _decision_context(
+        critical_check,
+        material_decision,
+        source_trust_score,
+        vendor_trust_score,
+        vendor_trust_breakdown,
+        differences,
+    )
 
     return {
         "report_id": f"ER-{datetime.now().strftime('%Y%m%d-%H%M%S')}",
@@ -364,6 +924,72 @@ def evaluate_fastener_candidate(
         "scores": scores,
         "source_trust_breakdown": trust_breakdown,
         "source_trust_notes": source_trust_notes,
+        "vendor_trust_breakdown": vendor_trust_breakdown,
+        "vendor_trust_notes": vendor_trust_notes,
+        "decision_context": decision_context,
+    }
+
+
+def evaluate_bearing_candidate(
+    target_material: dict,
+    candidate_material: dict,
+    mode: str = "normal",
+) -> dict:
+    target_spec = parse_bearing_spec(target_material["spec_text"])
+    candidate_spec = parse_bearing_spec(candidate_material["spec_text"])
+
+    critical_check = _bearing_critical_spec_check(target_spec, candidate_spec)
+    material_decision = _bearing_material_decision(target_spec, candidate_spec, critical_check)
+    differences = _highlight_bearing_differences(target_spec, candidate_spec)
+    trust_breakdown, source_trust_score, source_trust_notes = _source_trust_breakdown(candidate_material)
+    vendor_trust_breakdown, vendor_trust_score, vendor_trust_notes = _vendor_trust_breakdown(candidate_material)
+
+    scores = {
+        "compatibility_score": _bearing_compatibility_score(critical_check, material_decision[0]),
+        "vendor_trust_score": vendor_trust_score,
+        "source_trust_score": source_trust_score,
+        "lead_time_score": _lead_time_score(candidate_material["lead_time_days"]),
+        "price_score": _price_score(candidate_material["price_krw"], candidate_material["min_price_krw"]),
+        "moq_score": _moq_score(candidate_material.get("moq")),
+    }
+    scores["final_score"] = _weighted_total(scores, mode)
+    decision_context = _bearing_decision_context(
+        critical_check,
+        material_decision,
+        source_trust_score,
+        vendor_trust_score,
+        vendor_trust_breakdown,
+        differences,
+    )
+
+    return {
+        "report_id": f"ER-{datetime.now().strftime('%Y%m%d-%H%M%S')}",
+        "generated_at": datetime.now().astimezone().isoformat(timespec="seconds"),
+        "mode": mode,
+        "target_material": {
+            "material_id": target_material["material_id"],
+            "description": target_material["description"],
+            "spec": asdict(target_spec),
+        },
+        "candidate_material": {
+            "candidate_id": candidate_material["candidate_id"],
+            "vendor_name": candidate_material["vendor_name"],
+            "source_url": candidate_material["source_url"],
+            "source_type": _snake_source_type(candidate_material["source_type"]),
+            "price_krw": candidate_material["price_krw"],
+            "lead_time_days": candidate_material["lead_time_days"],
+            "moq": candidate_material.get("moq"),
+            "spec": asdict(candidate_spec),
+        },
+        "spec_analysis": {
+            "critical_spec_check": critical_check,
+            "highlighted_differences": differences,
+        },
+        "scores": scores,
+        "source_trust_breakdown": trust_breakdown,
+        "source_trust_notes": source_trust_notes,
+        "vendor_trust_breakdown": vendor_trust_breakdown,
+        "vendor_trust_notes": vendor_trust_notes,
         "decision_context": decision_context,
     }
 
@@ -452,7 +1078,7 @@ def _target_from_candidate_results(candidate_results: dict) -> dict:
     return {
         "material_id": candidate_results["material_id"],
         "description": candidate_results["material_name"],
-        "spec_text": candidate_results["target_spec_text"],
+        "spec_text": f"{candidate_results['material_name']} {candidate_results['target_spec_text']}",
     }
 
 
@@ -574,8 +1200,9 @@ def evaluate_candidates_from_phase2_results(
         if candidate.get("price_krw") not in {None, ""}
     ]
     min_price = min(known_prices) if known_prices else None
+    evaluator = evaluate_bearing_candidate if candidate_results.get("category") == "Bearing" else evaluate_fastener_candidate
     reports = [
-        evaluate_fastener_candidate(target, _candidate_from_phase2_result(candidate, min_price), mode=mode)
+        evaluator(target, _candidate_from_phase2_result(candidate, min_price), mode=mode)
         for candidate in candidates
     ]
     return build_batch_report(reports, mode)
@@ -614,6 +1241,7 @@ def _unsupported_category_batch_report(candidate_results: dict, mode: str) -> di
                 },
                 "scores": {
                     "compatibility_score": 0,
+                    "vendor_trust_score": 0,
                     "source_trust_score": 0,
                     "lead_time_score": 0,
                     "price_score": 0,
@@ -625,6 +1253,12 @@ def _unsupported_category_batch_report(candidate_results: dict, mode: str) -> di
                     "summary": "자동 평가 범위 밖의 카테고리입니다.",
                     "positive_factors": [],
                     "risk_factors": [f"{category} 카테고리는 현재 fastener 평가 규칙으로 검증하지 않습니다."],
+                },
+                "vendor_trust_breakdown": {},
+                "vendor_trust_notes": {
+                    "summary": "지원하지 않는 카테고리라 공급사 신뢰도를 자동 평가하지 않았습니다.",
+                    "positive_factors": [],
+                    "risk_factors": ["공급사 신뢰도 수동 확인이 필요합니다."],
                 },
                 "decision_context": {
                     "decision": "review_required",

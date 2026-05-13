@@ -20,6 +20,7 @@ from agents.web_research_agent import (
     load_shortage_event,
     make_search_result,
     _canonical_url,
+    _filter_relevant_search_results,
     _merge_candidate_details,
     _parse_candidate_detail_response,
     _parse_llm_query_response,
@@ -74,6 +75,20 @@ class Phase2ResearchTests(unittest.TestCase):
             generate_query_candidates(shortage_event, query_mode="llm", api_key=""),
             build_deterministic_query_candidates(shortage_event),
         )
+
+    def test_llm_query_generation_keeps_stable_queries_first(self):
+        shortage_event = load_shortage_event(DEFAULT_SAMPLE_INPUT)
+        original_generate_with_llm = web_research_agent._llm_client.generate_query_candidates_with_llm
+        web_research_agent._llm_client.generate_query_candidates_with_llm = lambda *_args, **_kwargs: [
+            "6204-ZZ alternate supplier price",
+        ]
+        try:
+            queries = generate_query_candidates(shortage_event, query_mode="llm", api_key="fake")
+        finally:
+            web_research_agent._llm_client.generate_query_candidates_with_llm = original_generate_with_llm
+
+        self.assertEqual(queries[0], build_deterministic_query_candidates(shortage_event)[0])
+        self.assertIn("6204-ZZ alternate supplier price", queries)
 
     def test_parse_llm_query_response_supports_responses_output_shape(self):
         response_body = {
@@ -289,6 +304,28 @@ class Phase2ResearchTests(unittest.TestCase):
         ranked = _rank_search_results([catalog, purchasable])
         self.assertEqual(ranked[0]["url"], "https://example.com/buy/6204zz")
 
+    def test_relevance_filter_keeps_results_anchored_to_shortage_material(self):
+        shortage_event = load_shortage_event(DEFAULT_SAMPLE_INPUT)
+        relevant = make_search_result(
+            query="6204-ZZ",
+            title="Buy 6204-ZZ Bearing - MISUMI",
+            url="https://example.com/buy/6204zz",
+            snippet="20mm ID 47mm OD 14mm width steel.",
+            source_type_hint="official_distributor",
+            verified=True,
+        )
+        unrelated = make_search_result(
+            query="6204-ZZ",
+            title="Buy HSR20 linear guide - MISUMI",
+            url="https://example.com/buy/hsr20",
+            snippet="Price, stock, ships today.",
+            source_type_hint="official_distributor",
+            verified=True,
+        )
+
+        filtered = _filter_relevant_search_results([unrelated, relevant], shortage_event)
+        self.assertEqual(filtered, [relevant])
+
     def test_live_mode_without_provider_does_not_promote_llm_plan_to_candidate(self):
         shortage_event = load_shortage_event(DEFAULT_SAMPLE_INPUT)
         report = build_candidate_results(
@@ -314,6 +351,13 @@ class Phase2ResearchTests(unittest.TestCase):
         shortage_event = load_shortage_event(DEFAULT_SAMPLE_INPUT)
         report = build_candidate_results(shortage_event, search_mode="live", search_provider="serpapi")
         self.assertGreaterEqual(len(report["candidates"]), 2)
+
+    def test_live_search_does_not_promote_unrelated_material(self):
+        web_research_agent.search_web = _fake_mixed_material_search_web
+        shortage_event = load_shortage_event(DEFAULT_SAMPLE_INPUT)
+        report = build_candidate_results(shortage_event, search_mode="live", search_provider="serpapi")
+        self.assertEqual(len(report["candidates"]), 1)
+        self.assertIn("6204", report["candidates"][0]["spec_text"])
 
     def test_live_search_limits_promoted_candidates(self):
         web_research_agent.search_web = _fake_many_verified_search_web
@@ -409,6 +453,27 @@ def _fake_verified_search_web(query: str, provider: str | None = None, max_resul
             url="https://example.com/industrial/6204-2rs",
             snippet="Replacement bearing with 20mm inner diameter 47mm outer diameter 14mm width.",
             source_type_hint="industrial_marketplace",
+            verified=True,
+        ),
+    ]
+
+
+def _fake_mixed_material_search_web(query: str, provider: str | None = None, max_results: int = 5):
+    return [
+        make_search_result(
+            query=query,
+            title="HSR20 Linear Guide - In Stock",
+            url="https://example.com/linear/hsr20",
+            snippet="Price, stock, ships today.",
+            source_type_hint="official_distributor",
+            verified=True,
+        ),
+        make_search_result(
+            query=query,
+            title="6204-ZZ Ball Bearing - MISUMI Korea",
+            url="https://example.com/misumi/6204-zz",
+            snippet="20mm ID, 47mm OD, 14mm width, steel bearing.",
+            source_type_hint="official_distributor",
             verified=True,
         ),
     ]
