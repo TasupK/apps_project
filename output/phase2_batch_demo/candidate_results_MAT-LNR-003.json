@@ -1,0 +1,30 @@
+{
+  "search_id": "SR-20260513-105037",
+  "event_id": "SE-20260507-849E1F",
+  "material_id": "MAT-LNR-003",
+  "material_name": "Linear Block HSR20",
+  "category": "Guide",
+  "target_spec_text": "Size 20. Width: 63mm, Length: 74mm. Static Load: 27.4kN. Material: Stainless Steel (SUS).",
+  "searched_at": "2026-05-13T10:50:37+09:00",
+  "query_used": "HSR20CA Linear Block THK Runner Block THK 한국 국내 site:.kr OR site:kr.misumi-ec.com OR site:smartstore.naver.com",
+  "search_mode": "live",
+  "candidates": [
+    {
+      "candidate_id": "LIVE-001",
+      "candidate_material_id": null,
+      "vendor_name": "미스미",
+      "price_krw": null,
+      "min_price_krw": null,
+      "lead_time_days": null,
+      "moq": null,
+      "location": "Domestic",
+      "source_type": "official_distributor",
+      "source_url": "https://kr.misumi-ec.com/vona2/detail/221000461747/?srsltid=AfmBOool_A_hDfPv_cH5-_vdB0PCsaqS59YrwMhwzv_NFFiIy0fQLQZR",
+      "price_listed": false,
+      "stock_listed": false,
+      "leadtime_listed": false,
+      "spec_text": "【블록단품】종합 볼 LM가이드 세계표준 HSR형 - 미스미. 삼익THK LM 가이드 HSR 시리즈의 블록 단품입니다. 갑작스러운 설계 변경이나 유지 보수 시에 아주 편리합니다. ... ·LM 레일과 LM 블록에 정밀 연삭 가공된 4조 열의 운전면 ...",
+      "spec_evidence": "Verified search result only. Detailed price, stock, lead time, and spec extraction is pending."
+    }
+  ]
+}

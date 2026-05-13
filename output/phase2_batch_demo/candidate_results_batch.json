@@ -1,0 +1,34 @@
+{
+  "batch_id": "SRB-20260513-105037",
+  "searched_at": "2026-05-13T10:50:37+09:00",
+  "result_count": 2,
+  "results": [
+    {
+      "event_id": "SE-20260507-1D5F92",
+      "material_id": "MAT-BRG-001",
+      "material_name": "Ball Bearing 6204-ZZ",
+      "input_path": "shortage_event_MAT-BRG-001.json",
+      "output_path": "output/phase2_batch_demo/candidate_results_MAT-BRG-001.json",
+      "candidate_count": 6,
+      "candidate_urls": [
+        "https://kr.misumi-ec.com/vona2/detail/221000068559/?HissuCode=AC-6204ZZ&srsltid=AfmBOoogezroa_ZSGZJbK0EdPhYNiaVDKypC-hyKxzPdqXxatCj0giru",
+        "https://kr.misumi-ec.com/vona2/detail/221005152862/?HissuCode=6204ZZ&srsltid=AfmBOoqEDuPjEBOfGxKZKQpJnYxAJThMqzBn-yzKQmw8YLjo3tJT9B--",
+        "https://kr.misumi-ec.com/vona2/detail/221005276386/?HissuCode=6204ZZ&srsltid=AfmBOopDwNI6ypkdHU_ter9FOnI-DE2DZUcIbebtfRLRKKE3K7QbkvD7",
+        "https://kr.misumi-ec.com/vona2/detail/221301899678/?HissuCode=6204ZZ&srsltid=AfmBOop7bYIXyg3QPQpFFKhP3hlsNIdFG_NExjkhQcuBuS6i-B9ubMk9",
+        "https://kr.misumi-ec.com/vona2/detail/221000541476/?HissuCode=BCM-6204ZZ&srsltid=AfmBOoq0Xw2Ms54Da_QX-82DuGjn3WOj5ys9r35FO8Z5Gk3xtRfmYHJH",
+        "https://kr.misumi-ec.com/vona2/detail/221000541588/?HissuCode=BERS-6204ZZ&srsltid=AfmBOopsEMZ0va_li15miRNqQz2ZxVxdmpjQjC3reQrSHEvF2ciyoYhG"
+      ]
+    },
+    {
+      "event_id": "SE-20260507-849E1F",
+      "material_id": "MAT-LNR-003",
+      "material_name": "Linear Block HSR20",
+      "input_path": "shortage_event_MAT-LNR-003.json",
+      "output_path": "output/phase2_batch_demo/candidate_results_MAT-LNR-003.json",
+      "candidate_count": 1,
+      "candidate_urls": [
+        "https://kr.misumi-ec.com/vona2/detail/221000461747/?srsltid=AfmBOool_A_hDfPv_cH5-_vdB0PCsaqS59YrwMhwzv_NFFiIy0fQLQZR"
+      ]
+    }
+  ]
+}
