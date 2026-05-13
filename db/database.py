@@ -1,12 +1,17 @@
 import sqlite3
 import json
+import os
 from pathlib import Path
 from .models import MaterialMaster, Inventory
 
-DB_PATH = Path(__file__).parent.parent / "buybee.db"
+DEFAULT_DB_PATH = Path(__file__).parent.parent / "buybee.db"
+
+
+def get_db_path() -> Path:
+    return Path(os.environ.get("BUYBEE_DB_PATH", DEFAULT_DB_PATH))
 
 def get_connection():
-    return sqlite3.connect(DB_PATH)
+    return sqlite3.connect(get_db_path())
 
 def init_db():
     """데이터베이스 테이블 초기화"""
@@ -63,4 +68,4 @@ def save_inventory(inv: Inventory):
 
 if __name__ == "__main__":
     init_db()
-    print(f"Database initialized at {DB_PATH}")
+    print(f"Database initialized at {get_db_path()}")

@@ -10,14 +10,15 @@ def monitor_node(state: AgentState) -> AgentState:
     """
     new_state = copy.deepcopy(state)
     new_state["status"] = "SHORTAGE_DETECTED"
-    new_state["shortage_event"] = {
-        "material_id": "BT-H-M10-50",
-        "description": "Hex bolt M10x50",
-        "current_stock": 12,
-        "minimum_stock": 100,
-        "shortage_qty": 88,
-        "detected_at": "2026-05-06T09:00:00Z"
-    }
+    if not new_state.get("shortage_event"):
+        new_state["shortage_event"] = {
+            "material_id": "BT-H-M10-50",
+            "description": "Hex bolt M10x50",
+            "current_stock": 12,
+            "minimum_stock": 100,
+            "shortage_qty": 88,
+            "detected_at": "2026-05-06T09:00:00Z"
+        }
     return new_state
 
 

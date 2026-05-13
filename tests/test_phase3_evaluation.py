@@ -245,6 +245,40 @@ class Phase3EvaluationTests(unittest.TestCase):
         self.assertEqual(item["scores"]["price_score"], 40)
         self.assertEqual(item["scores"]["lead_time_score"], 35)
 
+    def test_unsupported_phase2_category_requires_manual_review(self):
+        candidate_results = {
+            "material_id": "MAT-BRG-001",
+            "material_name": "Ball Bearing 6204-ZZ",
+            "category": "Bearing",
+            "target_spec_text": "Deep groove ball bearing 6204-ZZ.",
+            "candidates": [
+                {
+                    "candidate_id": "LIVE-BRG",
+                    "candidate_material_id": None,
+                    "vendor_name": "Bearing Supplier",
+                    "price_krw": 15000,
+                    "min_price_krw": 15000,
+                    "lead_time_days": 2,
+                    "moq": None,
+                    "location": "Domestic",
+                    "source_type": "official_distributor",
+                    "source_url": "https://example.com/bearing",
+                    "price_listed": True,
+                    "stock_listed": True,
+                    "leadtime_listed": True,
+                    "spec_text": "6204-ZZ bearing 20mm ID 47mm OD 14mm width.",
+                    "spec_evidence": "Supplier page lists bearing dimensions.",
+                }
+            ],
+        }
+        with TemporaryDirectory() as temp_dir:
+            path = Path(temp_dir) / "candidate_results.json"
+            path.write_text(json.dumps(candidate_results, ensure_ascii=False), encoding="utf-8")
+            batch = evaluate_candidates_from_phase2_results(path)
+        self.assertEqual(batch["next_action"], "manual_review")
+        self.assertEqual(batch["items"][0]["decision_context"]["decision"], "review_required")
+        self.assertIn("지원하지 않는 카테고리", batch["items"][0]["decision_context"]["recommendation_reason"])
+
 
 if __name__ == "__main__":
     unittest.main()

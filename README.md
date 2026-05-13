@@ -9,6 +9,30 @@ pip install -r requirements.txt
 streamlit run streamlit_hybrid_app.py
 ```
 
+## Phase 1-4 파이프라인 실행
+
+오프라인 검증용 실행:
+
+```bash
+python run_pipeline.py --search-provider llm_plan
+```
+
+실제 웹 검색/LLM 추출 실행:
+
+```bash
+cp .env.example .env
+# .env에 SERPAPI_API_KEY, 필요 시 OPENAI_API_KEY 설정
+python run_pipeline.py --search-provider serpapi --query-mode llm --extraction-mode llm
+```
+
+Phase 4 승인 대기 항목을 자동 승인까지 진행하려면:
+
+```bash
+python run_pipeline.py --auto-approve
+```
+
+`output/`의 실행 결과 JSON은 파이프라인 산출물입니다. 고정 계약 샘플은 `.planning/` 아래 파일을 기준으로 확인합니다.
+
 ## 현재 데모 흐름
 
 1. 재고 부족 자재를 감지합니다.

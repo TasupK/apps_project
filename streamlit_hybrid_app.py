@@ -2,6 +2,8 @@ import streamlit as st
 import pandas as pd
 import time
 import os
+import glob
+import json
 from datetime import datetime
 
 # 1. 페이지 설정 (넓은 화면 레이아웃)
@@ -13,6 +15,7 @@ INV_FILE = os.path.join(BASE_DIR, 'inventory_data.csv')
 MAT_FILE = os.path.join(BASE_DIR, 'material_master.csv')
 VEN_FILE = os.path.join(BASE_DIR, 'vendor_sourcing.csv')
 PO_FILE = os.path.join(BASE_DIR, 'PO_Result.csv')
+REPORT_PATTERN = os.path.join(BASE_DIR, 'output', 'evaluation_report_batch*.json')
 BUDGET_LIMIT_KRW = 5_000_000
 
 # 3. 데이터 로드 함수
@@ -64,6 +67,24 @@ def get_recommendation(target_material_id="MAT-1001"):
     sub_spec = df_mat[df_mat['MATERIAL_ID'] == best['MATERIAL_ID']]['TECHNICAL_SPECIFICATION'].values[0]
     return target_spec, sub_spec, candidates, best
 
+def load_latest_evaluation_report():
+    report_files = sorted(glob.glob(REPORT_PATTERN), key=os.path.getmtime, reverse=True)
+    if not report_files:
+        return None
+    with open(report_files[0], "r", encoding="utf-8") as f:
+        return json.load(f)
+
+def get_recommendation_from_report(report):
+    items = report.get("items", [])
+    if not items:
+        return None
+    top_id = report.get("top_candidate_id")
+    selected = next(
+        (item for item in items if item.get("candidate_material", {}).get("candidate_id") == top_id),
+        items[0],
+    )
+    return selected
+
 def create_po_draft(shortage, best):
     po_row = {
         "PO_DRAFT_NO": f"PO-DRAFT-{datetime.now().strftime('%Y%m%d%H%M%S')}",
@@ -79,6 +100,30 @@ def create_po_draft(shortage, best):
         "SOURCE_URL": best["SOURCE_URL"],
         "FINAL_SCORE": int(best["FINAL_SCORE"]),
         "RISK_NOTE": best["RISK_NOTE"],
+    }
+    pd.DataFrame([po_row]).to_csv(PO_FILE, index=False)
+    st.session_state.po_created = True
+    return po_row
+
+def create_po_draft_from_report(shortage, report, selected_item):
+    candidate = selected_item["candidate_material"]
+    scores = selected_item.get("scores", {})
+    decision = selected_item.get("decision_context", {})
+    unit_price = int(candidate.get("price_krw") or 0)
+    po_row = {
+        "PO_DRAFT_NO": f"PO-DRAFT-{datetime.now().strftime('%Y%m%d%H%M%S')}",
+        "CREATED_AT": datetime.now().isoformat(timespec="seconds"),
+        "SOURCE": "Human-approved Phase 3 evaluation result",
+        "VENDOR_NAME": candidate.get("vendor_name"),
+        "MATERIAL_ID": shortage["material_id"],
+        "CANDIDATE_ID": candidate.get("candidate_id"),
+        "UNIT_PRICE_KRW": unit_price,
+        "ORDER_QTY": shortage["shortage_qty"],
+        "TOTAL_AMOUNT_KRW": unit_price * shortage["shortage_qty"],
+        "LEAD_TIME_DAYS": candidate.get("lead_time_days"),
+        "SOURCE_URL": candidate.get("source_url"),
+        "FINAL_SCORE": scores.get("final_score"),
+        "RISK_NOTE": decision.get("recommendation_reason"),
     }
     pd.DataFrame([po_row]).to_csv(PO_FILE, index=False)
     st.session_state.po_created = True
@@ -108,30 +153,67 @@ with col1:
     if st.session_state.step >= 2:
         st.subheader("[Step 2 & 3] 웹 검색 후보 검증 및 구매 전략")
         st.markdown("**자동 검증 결과: Rule 기반 스펙 비교 + 출처 신뢰도 평가 + 사용자 2차 검토 대기**")
-        
-        target_spec, sub_spec, candidates, best = get_recommendation()
-        
-        c1, c2 = st.columns(2)
-        c1.info(f"**결품 자재 (MAT-1001)**\n\n{target_spec}")
-        c2.success(f"**웹 검색 후보 ({best['MATERIAL_ID']}) - 기술 호환성 {best['TECH_COMPATIBILITY_PERCENT']}%**\n\n{sub_spec}")
-        
-        m1, m2, m3, m4 = st.columns(4)
-        m1.metric("추천 업체", best["VENDOR_NAME"])
-        m2.metric("최종 점수", f"{best['FINAL_SCORE']}/100")
-        m3.metric("출처 신뢰도", f"{best['SOURCE_RELIABILITY_SCORE']}/100")
-        m4.metric("예상 납기", f"{best['LEAD_TIME_DAYS']}일")
+        report = load_latest_evaluation_report()
+        selected_item = get_recommendation_from_report(report) if report else None
 
-        st.markdown("**웹 검색 후보 및 신뢰도 검증표**")
-        st.dataframe(
-            candidates[[
-                "CANDIDATE_ID", "VENDOR_NAME", "UNIT_PRICE_KRW", "LEAD_TIME_DAYS",
-                "SOURCE_TYPE", "TECH_COMPATIBILITY_PERCENT", "SOURCE_RELIABILITY_SCORE",
-                "FINAL_SCORE", "VALIDATION_STATUS", "RISK_NOTE"
-            ]],
-            use_container_width=True,
-            hide_index=True,
-        )
-        st.caption(f"출처 URL: {best['SOURCE_URL']}")
+        if selected_item:
+            candidate = selected_item["candidate_material"]
+            target = selected_item["target_material"]
+            scores = selected_item["scores"]
+            decision = selected_item["decision_context"]
+
+            c1, c2 = st.columns(2)
+            c1.info(f"**결품 자재 ({target['material_id']})**\n\n{target['description']}")
+            c2.success(f"**웹 검색 후보 ({candidate['candidate_id']}) - {decision['decision']}**\n\n{candidate['spec']}")
+
+            m1, m2, m3, m4 = st.columns(4)
+            m1.metric("추천 업체", candidate["vendor_name"])
+            m2.metric("최종 점수", f"{scores['final_score']}/100")
+            m3.metric("출처 신뢰도", f"{scores['source_trust_score']}/100")
+            m4.metric("예상 납기", f"{candidate['lead_time_days']}일")
+
+            rows = []
+            for item in report.get("items", []):
+                mat = item["candidate_material"]
+                item_scores = item["scores"]
+                item_decision = item["decision_context"]
+                rows.append({
+                    "CANDIDATE_ID": mat["candidate_id"],
+                    "VENDOR_NAME": mat["vendor_name"],
+                    "UNIT_PRICE_KRW": mat["price_krw"],
+                    "LEAD_TIME_DAYS": mat["lead_time_days"],
+                    "SOURCE_TYPE": mat["source_type"],
+                    "FINAL_SCORE": item_scores["final_score"],
+                    "DECISION": item_decision["decision"],
+                    "RISK_NOTE": item_decision["recommendation_reason"],
+                })
+            st.markdown("**Phase 3 평가 후보 및 신뢰도 검증표**")
+            st.dataframe(pd.DataFrame(rows), use_container_width=True, hide_index=True)
+            st.caption(f"출처 URL: {candidate['source_url']}")
+        else:
+            target_spec, sub_spec, candidates, best = get_recommendation()
+
+            c1, c2 = st.columns(2)
+            c1.info(f"**결품 자재 (MAT-1001)**\n\n{target_spec}")
+            c2.success(f"**웹 검색 후보 ({best['MATERIAL_ID']}) - 기술 호환성 {best['TECH_COMPATIBILITY_PERCENT']}%**\n\n{sub_spec}")
+
+            m1, m2, m3, m4 = st.columns(4)
+            m1.metric("추천 업체", best["VENDOR_NAME"])
+            m2.metric("최종 점수", f"{best['FINAL_SCORE']}/100")
+            m3.metric("출처 신뢰도", f"{best['SOURCE_RELIABILITY_SCORE']}/100")
+            m4.metric("예상 납기", f"{best['LEAD_TIME_DAYS']}일")
+
+            st.markdown("**웹 검색 후보 및 신뢰도 검증표**")
+            st.dataframe(
+                candidates[[
+                    "CANDIDATE_ID", "VENDOR_NAME", "UNIT_PRICE_KRW", "LEAD_TIME_DAYS",
+                    "SOURCE_TYPE", "TECH_COMPATIBILITY_PERCENT", "SOURCE_RELIABILITY_SCORE",
+                    "FINAL_SCORE", "VALIDATION_STATUS", "RISK_NOTE"
+                ]],
+                use_container_width=True,
+                hide_index=True,
+            )
+            st.caption(f"출처 URL: {best['SOURCE_URL']}")
 
     if st.session_state.po_created and os.path.exists(PO_FILE):
         st.markdown("---")
@@ -181,9 +263,18 @@ with col2:
                     st.session_state.step = 2
                     st.session_state.approval_ready = True
                     shortage = get_shortage()
-                    _, _, _, best = get_recommendation()
-                    total = int(best["UNIT_PRICE_KRW"]) * shortage["shortage_qty"]
-                    full_response = f"왼쪽 대시보드에 웹 검색 후보와 1차 검증 결과를 띄웠습니다.\n\n1순위는 **{best['VENDOR_NAME']}**의 **{best['MATERIAL_ID']}**입니다. 기술 호환성 {best['TECH_COMPATIBILITY_PERCENT']}%, 출처 신뢰도 {best['SOURCE_RELIABILITY_SCORE']}점, 납기 {best['LEAD_TIME_DAYS']}일입니다.\n\n예상 발주 금액은 {total:,}원으로 예산 한도({BUDGET_LIMIT_KRW:,}원) 내입니다. 다만 {best['RISK_NOTE']} 최종 승인하시겠습니까?"
+                    report = load_latest_evaluation_report()
+                    selected_item = get_recommendation_from_report(report) if report else None
+                    if selected_item:
+                        candidate = selected_item["candidate_material"]
+                        scores = selected_item["scores"]
+                        decision = selected_item["decision_context"]
+                        total = int(candidate.get("price_krw") or 0) * shortage["shortage_qty"]
+                        full_response = f"왼쪽 대시보드에 Phase 3 평가 결과를 띄웠습니다.\n\n1순위는 **{candidate['vendor_name']}**의 **{candidate['candidate_id']}**입니다. 최종 점수 {scores['final_score']}점, 출처 신뢰도 {scores['source_trust_score']}점, 납기 {candidate['lead_time_days']}일입니다.\n\n예상 발주 금액은 {total:,}원으로 예산 한도({BUDGET_LIMIT_KRW:,}원) 내입니다. 판단: {decision['recommendation_reason']} 최종 승인하시겠습니까?"
+                    else:
+                        _, _, _, best = get_recommendation()
+                        total = int(best["UNIT_PRICE_KRW"]) * shortage["shortage_qty"]
+                        full_response = f"왼쪽 대시보드에 웹 검색 후보와 1차 검증 결과를 띄웠습니다.\n\n1순위는 **{best['VENDOR_NAME']}**의 **{best['MATERIAL_ID']}**입니다. 기술 호환성 {best['TECH_COMPATIBILITY_PERCENT']}%, 출처 신뢰도 {best['SOURCE_RELIABILITY_SCORE']}점, 납기 {best['LEAD_TIME_DAYS']}일입니다.\n\n예상 발주 금액은 {total:,}원으로 예산 한도({BUDGET_LIMIT_KRW:,}원) 내입니다. 다만 {best['RISK_NOTE']} 최종 승인하시겠습니까?"
                     # Streamlit 화면 즉시 렌더링을 위해 rerun 효과
 
                 elif "반려" in prompt or "거절" in prompt or "보류" in prompt or "중단" in prompt:
@@ -198,8 +289,13 @@ with col2:
                         st.session_state.step = 3
                         st.session_state.approval_ready = False
                         shortage = get_shortage()
-                        _, _, _, best = get_recommendation()
-                        po_row = create_po_draft(shortage, best)
+                        report = load_latest_evaluation_report()
+                        selected_item = get_recommendation_from_report(report) if report else None
+                        if selected_item:
+                            po_row = create_po_draft_from_report(shortage, report, selected_item)
+                        else:
+                            _, _, _, best = get_recommendation()
+                            po_row = create_po_draft(shortage, best)
                         full_response = f"**[승인 완료 및 PO 초안 생성]**\n\n사용자 승인에 따라 `{os.path.basename(PO_FILE)}` 파일을 생성했습니다.\n\n전표 초안: {po_row['PO_DRAFT_NO']}\n업체: {po_row['VENDOR_NAME']}\n수량: {po_row['ORDER_QTY']}개\n예상 금액: {po_row['TOTAL_AMOUNT_KRW']:,}원\n\n실제 SAP 전송 전 검토용 Mock 결과물입니다."
                 
                 else:

@@ -12,7 +12,7 @@ import urllib.error
 import urllib.parse
 import urllib.request
 
-PROJECT_ROOT = Path(__file__).resolve().parents[1]
+PROJECT_ROOT = Path(__file__).resolve().parents[2]
 DEFAULT_SAMPLE_INPUT = PROJECT_ROOT / ".planning" / "phase-2" / "shortage_event.sample.json"
 DEFAULT_OUTPUT = PROJECT_ROOT / "output" / "candidate_results.json"
 

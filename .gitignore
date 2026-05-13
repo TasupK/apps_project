@@ -138,6 +138,8 @@ celerybeat.pid
 .env
 !.env.example
 .envrc
+output/test_buybee.db
+output/evaluation_report_batch_*.json
 .venv
 env/
 venv/
