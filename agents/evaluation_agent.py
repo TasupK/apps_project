@@ -2,12 +2,13 @@
 
 from __future__ import annotations
 
-from dataclasses import asdict
+from dataclasses import asdict, dataclass
 from datetime import datetime
 import argparse
 import csv
 import json
 from pathlib import Path
+import re
 import sys
 
 
@@ -25,7 +26,18 @@ DEFAULT_VENDOR_SOURCING = PROJECT_ROOT / "vendor_sourcing.csv"
 DEFAULT_CANDIDATE_RESULTS = PROJECT_ROOT / "output" / "candidate_results.json"
 DEFAULT_OUTPUT = PROJECT_ROOT / "output" / "evaluation_report.json"
 DEFAULT_BATCH_OUTPUT = PROJECT_ROOT / "output" / "evaluation_report_batch.json"
-SUPPORTED_PHASE2_CATEGORIES = {"Fastener"}
+SUPPORTED_PHASE2_CATEGORIES = {"Bearing", "Fastener"}
+
+
+@dataclass(frozen=True)
+class BearingSpec:
+    bearing_code: str | None
+    bearing_type: str | None
+    inner_diameter_mm: int | None
+    outer_diameter_mm: int | None
+    width_mm: int | None
+    precision_class: str | None
+    material: str | None
 
 
 MATERIAL_GROUPS = {
@@ -127,6 +139,90 @@ def _material_decision(original: str | None, candidate: str | None) -> tuple[str
     return "review_required", "Medium", "재질이 하향되어 구매 담당자와 현장 검토가 필요합니다."
 
 
+def _find_number(pattern: str, text: str) -> int | None:
+    match = re.search(pattern, text, flags=re.IGNORECASE)
+    if not match:
+        return None
+    return round(float(match.group(1)))
+
+
+def _find_bearing_code(text: str) -> str | None:
+    match = re.search(r"\b([67][0-9]{3,4})(?:\s*[-/]?\s*([A-Z]{1,4}[A-Z0-9/]*))?\b", text, flags=re.IGNORECASE)
+    if not match:
+        return None
+    suffix = match.group(2)
+    if suffix:
+        suffix = re.split(r"[/\s]", suffix, maxsplit=1)[0]
+    return f"{match.group(1)}-{suffix.upper()}" if suffix else match.group(1)
+
+
+def _base_bearing_code(code: str | None) -> str | None:
+    if not code:
+        return None
+    match = re.match(r"([67][0-9]{3,4})", code)
+    return match.group(1) if match else code
+
+
+def _normalize_bearing_type(text: str, bearing_code: str | None = None) -> str | None:
+    lowered = text.lower()
+    if "angular contact" in lowered or "앵귤러" in lowered or "앵글러" in lowered:
+        return "angular_contact"
+    base_code = _base_bearing_code(bearing_code)
+    if base_code and base_code.startswith("7"):
+        return "angular_contact"
+    if "deep groove" in lowered or "6200" in lowered or "ball bearing" in lowered or "볼 베어링" in lowered:
+        return "deep_groove_ball"
+    return None
+
+
+def _normalize_bearing_precision(text: str) -> str | None:
+    match = re.search(r"\b(P[0-9][A-Z]?|P4S|CLASS\s*[0-9]|ABEC\s*-?\s*[0-9])\b", text, flags=re.IGNORECASE)
+    return match.group(1).upper().replace(" ", "") if match else None
+
+
+def _normalize_bearing_material(text: str) -> str | None:
+    lowered = text.lower()
+    if "stainless" in lowered or "sus" in lowered:
+        return "STAINLESS"
+    if "steel" in lowered or "스틸" in lowered or "강" in lowered:
+        return "STEEL"
+    return None
+
+
+def parse_bearing_spec(text: str) -> BearingSpec:
+    compact = " ".join(str(text or "").split())
+    bearing_code = _find_bearing_code(compact)
+    dimension_match = re.search(
+        r"\b([0-9]+(?:\.[0-9]+)?)\s*(?:mm)?\s*[xX×]\s*([0-9]+(?:\.[0-9]+)?)\s*(?:mm)?\s*[xX×]\s*([0-9]+(?:\.[0-9]+)?)\s*(?:mm)?\b",
+        compact,
+        flags=re.IGNORECASE,
+    )
+    if dimension_match:
+        inner_diameter = round(float(dimension_match.group(1)))
+        outer_diameter = round(float(dimension_match.group(2)))
+        width = round(float(dimension_match.group(3)))
+    else:
+        inner_diameter = _find_number(r"\b([0-9]+(?:\.[0-9]+)?)\s*mm\s*(?:ID|I\.D\.|inner diameter|bore)\b", compact)
+        if inner_diameter is None:
+            inner_diameter = _find_number(r"\b(?:ID|I\.D\.|inner diameter|bore)\s*[:=]?\s*([0-9]+(?:\.[0-9]+)?)\s*mm\b", compact)
+        outer_diameter = _find_number(r"\b([0-9]+(?:\.[0-9]+)?)\s*mm\s*(?:OD|O\.D\.|outer diameter)\b", compact)
+        if outer_diameter is None:
+            outer_diameter = _find_number(r"\b(?:OD|O\.D\.|outer diameter)\s*[:=]?\s*([0-9]+(?:\.[0-9]+)?)\s*mm\b", compact)
+        width = _find_number(r"\b([0-9]+(?:\.[0-9]+)?)\s*mm\s*(?:Width|Race Width|W)\b", compact)
+        if width is None:
+            width = _find_number(r"\b(?:Width|Race Width|W)\s*[:=]?\s*([0-9]+(?:\.[0-9]+)?)\s*mm\b", compact)
+
+    return BearingSpec(
+        bearing_code=bearing_code,
+        bearing_type=_normalize_bearing_type(compact, bearing_code),
+        inner_diameter_mm=inner_diameter,
+        outer_diameter_mm=outer_diameter,
+        width_mm=width,
+        precision_class=_normalize_bearing_precision(compact),
+        material=_normalize_bearing_material(compact),
+    )
+
+
 def _critical_spec_check(original: FastenerSpec, candidate: FastenerSpec) -> dict:
     diameter_match = original.diameter == candidate.diameter
     pitch_match = original.pitch == candidate.pitch
@@ -167,7 +263,7 @@ def _highlight_differences(original: FastenerSpec, candidate: FastenerSpec) -> l
 
 
 def _source_trust_breakdown(candidate: dict) -> tuple[dict, int, dict]:
-    source_type = _snake_source_type(candidate.get("source_type") or candidate.get("SOURCE_TYPE", "unknown"))
+    source_type = _infer_candidate_source_type(candidate)
     source_meta = SOURCE_TYPE_BREAKDOWN.get(source_type, SOURCE_TYPE_BREAKDOWN["unknown"])
     breakdown = {
         "official_distributor": source_meta["official_distributor"],
@@ -183,6 +279,24 @@ def _source_trust_breakdown(candidate: dict) -> tuple[dict, int, dict]:
     score += 10 if candidate.get("source_url") or candidate.get("SOURCE_URL") else 0
     score = min(score, 100)
     return breakdown, score, _source_trust_notes(source_meta["label"], breakdown, score)
+
+
+def _infer_candidate_source_type(candidate: dict) -> str:
+    source_type = _snake_source_type(candidate.get("source_type") or candidate.get("SOURCE_TYPE", "unknown"))
+    if source_type != "unknown":
+        return source_type
+
+    text = " ".join(
+        str(candidate.get(field) or "")
+        for field in ["source_url", "SOURCE_URL", "vendor_name", "VENDOR_NAME"]
+    ).lower()
+    if any(token in text for token in ["misumi", "rs-online", "rs online", "mcmaster", "digikey", "mouser"]):
+        return "official_distributor"
+    if any(token in text for token in ["bearingworks", "industrial", "daara"]):
+        return "industrial_marketplace"
+    if any(token in text for token in ["amazon", "ebay", "aliexpress", "made-in-china"]):
+        return "marketplace"
+    return "unknown"
 
 
 def _source_trust_notes(source_label: str, breakdown: dict, score: int) -> dict:
@@ -314,6 +428,168 @@ def _decision_context(
     }
 
 
+def _bearing_critical_spec_check(original: BearingSpec, candidate: BearingSpec) -> dict:
+    base_code_match = (
+        _base_bearing_code(original.bearing_code) is not None
+        and _base_bearing_code(original.bearing_code) == _base_bearing_code(candidate.bearing_code)
+    )
+    dimension_fields = ["inner_diameter_mm", "outer_diameter_mm", "width_mm"]
+    dimension_matches = {
+        f"{field}_match": getattr(original, field) is not None
+        and getattr(candidate, field) is not None
+        and getattr(original, field) == getattr(candidate, field)
+        for field in dimension_fields
+    }
+    dimension_values_present = all(getattr(original, field) is not None and getattr(candidate, field) is not None for field in dimension_fields)
+    dimensions_match = all(dimension_matches.values())
+    type_match = (
+        original.bearing_type is not None
+        and candidate.bearing_type is not None
+        and original.bearing_type == candidate.bearing_type
+    )
+    precision_match = (
+        original.precision_class is not None
+        and candidate.precision_class is not None
+        and original.precision_class == candidate.precision_class
+    )
+    precision_grade_match = (
+        _bearing_precision_grade(original.precision_class) is not None
+        and _bearing_precision_grade(original.precision_class) == _bearing_precision_grade(candidate.precision_class)
+    )
+
+    critical_mismatch = (
+        (dimension_values_present and not dimensions_match)
+        or (
+            original.bearing_type is not None
+            and candidate.bearing_type is not None
+            and original.bearing_type != candidate.bearing_type
+        )
+        or (
+            original.precision_class is not None
+            and candidate.precision_class is not None
+            and original.precision_class != candidate.precision_class
+            and not precision_grade_match
+        )
+    )
+    original_has_dimensions = all(getattr(original, field) is not None for field in dimension_fields)
+    incomplete_critical_specs = not (
+        (dimensions_match if original_has_dimensions else base_code_match)
+        and (type_match or original.bearing_type is None or candidate.bearing_type is None)
+    )
+
+    return {
+        "base_code_match": base_code_match,
+        "inner_diameter_match": dimension_matches["inner_diameter_mm_match"],
+        "outer_diameter_match": dimension_matches["outer_diameter_mm_match"],
+        "width_match": dimension_matches["width_mm_match"],
+        "dimensions_match": dimensions_match,
+        "type_match": type_match,
+        "precision_match": precision_match,
+        "precision_grade_match": precision_grade_match,
+        "critical_mismatch": critical_mismatch,
+        "incomplete_critical_specs": incomplete_critical_specs,
+    }
+
+
+def _bearing_precision_grade(precision_class: str | None) -> str | None:
+    if not precision_class:
+        return None
+    match = re.search(r"P([0-9])", precision_class.upper())
+    return match.group(1) if match else precision_class.upper()
+
+
+def _highlight_bearing_differences(original: BearingSpec, candidate: BearingSpec) -> list[dict]:
+    impacts = {
+        "bearing_code": "베어링 기본 형번이 다르면 치수와 구조 호환성 확인이 필요합니다.",
+        "bearing_type": "베어링 형식이 달라 하중 방향과 장착 조건이 달라질 수 있습니다.",
+        "inner_diameter_mm": "내경이 달라 샤프트에 장착할 수 없습니다.",
+        "outer_diameter_mm": "외경이 달라 하우징에 장착할 수 없습니다.",
+        "width_mm": "폭이 달라 조립 간섭 또는 고정 문제가 발생할 수 있습니다.",
+        "precision_class": "정밀도 등급이 달라 고속/정밀 장비 적용 전 검토가 필요합니다.",
+        "material": "재질 정보 차이로 내식성 또는 수명 조건 검토가 필요합니다.",
+    }
+    differences = []
+    for field_name, impact in impacts.items():
+        original_value = getattr(original, field_name)
+        candidate_value = getattr(candidate, field_name)
+        if original_value is not None and candidate_value is not None and original_value != candidate_value:
+            differences.append(
+                {
+                    "spec": field_name,
+                    "original": original_value,
+                    "candidate": candidate_value,
+                    "impact": impact,
+                }
+            )
+    return differences
+
+
+def _bearing_material_decision(original: BearingSpec, candidate: BearingSpec, critical_check: dict) -> tuple[str, str, str]:
+    if critical_check["critical_mismatch"]:
+        return "reject", "High", "베어링 핵심 치수, 형식 또는 정밀도 등급이 일치하지 않습니다."
+    if critical_check["incomplete_critical_specs"]:
+        return "review_required", "Medium", "일부 핵심 베어링 스펙이 부족해 구매 담당자 확인이 필요합니다."
+    if original.material and candidate.material and original.material != candidate.material:
+        return "conditional_approve", "Medium", "치수와 형식은 맞지만 재질 차이가 있어 사용 조건 확인이 필요합니다."
+    if original.precision_class and candidate.precision_class and original.precision_class != candidate.precision_class:
+        return "conditional_approve", "Medium", "정밀도 등급 계열은 같지만 세부 접미사가 달라 적용 장비 조건 확인이 필요합니다."
+    if original.precision_class and not candidate.precision_class:
+        return "conditional_approve", "Medium", "치수와 형식은 맞지만 후보의 정밀도 등급 확인이 필요합니다."
+    return "recommend", "Low", "베어링 형번 또는 핵심 치수와 형식이 원본 자재와 일치합니다."
+
+
+def _bearing_compatibility_score(critical_check: dict, material_decision: str) -> int:
+    if critical_check["critical_mismatch"]:
+        return 0
+    if material_decision == "recommend":
+        return 100
+    if material_decision == "conditional_approve":
+        return 86
+    if material_decision == "review_required":
+        return 68
+    return 20
+
+
+def _bearing_decision_context(
+    critical_check: dict,
+    material_decision: tuple[str, str, str],
+    source_trust_score: int,
+    differences: list[dict],
+) -> dict:
+    decision, risk_level, reason_seed = material_decision
+    if critical_check["critical_mismatch"]:
+        return {
+            "decision": "reject",
+            "risk_level": "High",
+            "recommendation_reason": "베어링 핵심 스펙이 일치하지 않아 대체재로 추천하지 않습니다.",
+            "approval_conditions": [],
+            "rejection_reason": "내경, 외경, 폭, 형식, 정밀도 중 확인된 핵심 스펙이 불일치합니다.",
+            "review_required": False,
+        }
+    if source_trust_score < 50 and decision in {"recommend", "conditional_approve"}:
+        return {
+            "decision": "review_required",
+            "risk_level": "High",
+            "recommendation_reason": "베어링 스펙은 유사하지만 출처 신뢰도가 낮아 자동 추천할 수 없습니다.",
+            "approval_conditions": [],
+            "rejection_reason": None,
+            "review_required": True,
+        }
+
+    approval_conditions = []
+    if decision == "conditional_approve":
+        approval_conditions = [item["impact"] for item in differences] or ["정밀도 등급, 재질, 적용 장비 조건을 확인해야 합니다."]
+
+    return {
+        "decision": decision,
+        "risk_level": risk_level,
+        "recommendation_reason": reason_seed,
+        "approval_conditions": approval_conditions,
+        "rejection_reason": None,
+        "review_required": decision == "review_required",
+    }
+
+
 def evaluate_fastener_candidate(
     target_material: dict,
     candidate_material: dict,
@@ -337,6 +613,59 @@ def evaluate_fastener_candidate(
     scores["final_score"] = _weighted_total(scores, mode)
 
     decision_context = _decision_context(critical_check, material_decision, source_trust_score, differences)
+
+    return {
+        "report_id": f"ER-{datetime.now().strftime('%Y%m%d-%H%M%S')}",
+        "generated_at": datetime.now().astimezone().isoformat(timespec="seconds"),
+        "mode": mode,
+        "target_material": {
+            "material_id": target_material["material_id"],
+            "description": target_material["description"],
+            "spec": asdict(target_spec),
+        },
+        "candidate_material": {
+            "candidate_id": candidate_material["candidate_id"],
+            "vendor_name": candidate_material["vendor_name"],
+            "source_url": candidate_material["source_url"],
+            "source_type": _snake_source_type(candidate_material["source_type"]),
+            "price_krw": candidate_material["price_krw"],
+            "lead_time_days": candidate_material["lead_time_days"],
+            "moq": candidate_material.get("moq"),
+            "spec": asdict(candidate_spec),
+        },
+        "spec_analysis": {
+            "critical_spec_check": critical_check,
+            "highlighted_differences": differences,
+        },
+        "scores": scores,
+        "source_trust_breakdown": trust_breakdown,
+        "source_trust_notes": source_trust_notes,
+        "decision_context": decision_context,
+    }
+
+
+def evaluate_bearing_candidate(
+    target_material: dict,
+    candidate_material: dict,
+    mode: str = "normal",
+) -> dict:
+    target_spec = parse_bearing_spec(target_material["spec_text"])
+    candidate_spec = parse_bearing_spec(candidate_material["spec_text"])
+
+    critical_check = _bearing_critical_spec_check(target_spec, candidate_spec)
+    material_decision = _bearing_material_decision(target_spec, candidate_spec, critical_check)
+    differences = _highlight_bearing_differences(target_spec, candidate_spec)
+    trust_breakdown, source_trust_score, source_trust_notes = _source_trust_breakdown(candidate_material)
+
+    scores = {
+        "compatibility_score": _bearing_compatibility_score(critical_check, material_decision[0]),
+        "source_trust_score": source_trust_score,
+        "lead_time_score": _lead_time_score(candidate_material["lead_time_days"]),
+        "price_score": _price_score(candidate_material["price_krw"], candidate_material["min_price_krw"]),
+        "moq_score": _moq_score(candidate_material.get("moq")),
+    }
+    scores["final_score"] = _weighted_total(scores, mode)
+    decision_context = _bearing_decision_context(critical_check, material_decision, source_trust_score, differences)
 
     return {
         "report_id": f"ER-{datetime.now().strftime('%Y%m%d-%H%M%S')}",
@@ -452,7 +781,7 @@ def _target_from_candidate_results(candidate_results: dict) -> dict:
     return {
         "material_id": candidate_results["material_id"],
         "description": candidate_results["material_name"],
-        "spec_text": candidate_results["target_spec_text"],
+        "spec_text": f"{candidate_results['material_name']} {candidate_results['target_spec_text']}",
     }
 
 
@@ -574,8 +903,9 @@ def evaluate_candidates_from_phase2_results(
         if candidate.get("price_krw") not in {None, ""}
     ]
     min_price = min(known_prices) if known_prices else None
+    evaluator = evaluate_bearing_candidate if candidate_results.get("category") == "Bearing" else evaluate_fastener_candidate
     reports = [
-        evaluate_fastener_candidate(target, _candidate_from_phase2_result(candidate, min_price), mode=mode)
+        evaluator(target, _candidate_from_phase2_result(candidate, min_price), mode=mode)
         for candidate in candidates
     ]
     return build_batch_report(reports, mode)

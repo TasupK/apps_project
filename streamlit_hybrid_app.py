@@ -479,6 +479,25 @@ def reset_demo_state() -> None:
     initialize_session()
 
 
+def clear_pipeline_state_for_material_change(selected_material_id: str) -> None:
+    previous_material_id = st.session_state.get("active_pipeline_material_id")
+    if previous_material_id in (None, selected_material_id):
+        st.session_state.active_pipeline_material_id = selected_material_id
+        return
+
+    for key in [
+        "candidate_results",
+        "evaluation_report",
+        "approval_ready",
+        "po_row",
+        "last_error",
+    ]:
+        st.session_state.pop(key, None)
+    st.session_state.step = "idle"
+    st.session_state.active_pipeline_material_id = selected_material_id
+    initialize_session()
+
+
 def shortage_rows(inventory: pd.DataFrame) -> pd.DataFrame:
     shortage = inventory[inventory["current_stock"] < inventory["safety_stock"]].copy()
     shortage["shortage_qty"] = shortage["safety_stock"] - shortage["current_stock"]
@@ -686,6 +705,7 @@ def assistant_reply(prompt: str, event: dict) -> str:
 
         st.session_state.candidate_results = candidate_results
         st.session_state.evaluation_report = evaluation_report
+        st.session_state.active_pipeline_material_id = event["material_id"]
         st.session_state.step = "candidates_loaded"
 
         table = build_candidate_table(candidate_results, evaluation_report)
@@ -913,6 +933,14 @@ def render_pipeline_results(event: dict) -> None:
     if not candidate_results:
         st.info("아직 웹 검색을 실행하지 않았습니다. 우측 어시스턴트에서 **대체품 찾아줘**를 입력하세요.")
         return
+
+    if candidate_results.get("material_id") != event.get("material_id"):
+        st.warning("선택한 부족 자재와 검색 결과가 달라 결과를 초기화했습니다. 다시 검색을 실행하세요.")
+        st.session_state.candidate_results = None
+        st.session_state.evaluation_report = None
+        st.session_state.approval_ready = False
+        st.session_state.step = "idle"
+        st.rerun()
 
     c1, c2, c3, c4 = st.columns(4)
     c1.metric("검색 ID", candidate_results.get("search_id", "-"))
@@ -1259,6 +1287,7 @@ def main() -> None:
     selected_default = default_selected_material(shortages)
     selected_material = render_sidebar(shortages, selected_default)
     st.session_state.selected_material_id = selected_material
+    clear_pipeline_state_for_material_change(selected_material)
 
     events = shortage_events_by_material()
     event = events[selected_material]
