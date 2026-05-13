@@ -1,9 +1,11 @@
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 from typing import Optional, List, Dict, Any
 from datetime import datetime
 
 class MaterialMaster(BaseModel):
     """자재 마스터 정보 (스펙 중심)"""
+    model_config = ConfigDict(populate_by_name=True)
+
     material_id: str = Field(..., alias="MATERIAL_ID")
     material_name: str = Field(..., alias="MATERIAL_NAME")
     category: str = Field(..., alias="CATEGORY")
@@ -12,19 +14,15 @@ class MaterialMaster(BaseModel):
     technical_specification: str = Field(..., alias="TECHNICAL_SPECIFICATION")
     spec_attributes: Dict[str, Any] = Field(default_factory=dict)  # 정규화된 속성 데이터 (JSON)
     
-    class Config:
-        populate_by_name = True
-
 class Inventory(BaseModel):
     """재고 스냅샷 정보"""
+    model_config = ConfigDict(populate_by_name=True)
+
     material_id: str = Field(..., alias="MATERIAL_ID")
     current_stock: int = Field(..., alias="CURRENT_STOCK")
     safety_stock: int = Field(..., alias="SAFETY_STOCK")
     plant: str = Field(..., alias="PLANT")
     last_updated: datetime = Field(default_factory=datetime.now)
-
-    class Config:
-        populate_by_name = True
 
 class ShortageEvent(BaseModel):
     """결품 감지 시 발생되는 이벤트 포맷"""

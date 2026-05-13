@@ -25,6 +25,7 @@ DEFAULT_VENDOR_SOURCING = PROJECT_ROOT / "vendor_sourcing.csv"
 DEFAULT_CANDIDATE_RESULTS = PROJECT_ROOT / "output" / "candidate_results.json"
 DEFAULT_OUTPUT = PROJECT_ROOT / "output" / "evaluation_report.json"
 DEFAULT_BATCH_OUTPUT = PROJECT_ROOT / "output" / "evaluation_report_batch.json"
+SUPPORTED_PHASE2_CATEGORIES = {"Fastener"}
 
 
 MATERIAL_GROUPS = {
@@ -563,6 +564,9 @@ def evaluate_candidates_from_phase2_results(
     if not candidates:
         return build_batch_report([], mode)
 
+    if candidate_results.get("category") and candidate_results.get("category") not in SUPPORTED_PHASE2_CATEGORIES:
+        return _unsupported_category_batch_report(candidate_results, mode)
+
     target = _target_from_candidate_results(candidate_results)
     known_prices = [
         int(candidate["price_krw"])
@@ -575,6 +579,64 @@ def evaluate_candidates_from_phase2_results(
         for candidate in candidates
     ]
     return build_batch_report(reports, mode)
+
+
+def _unsupported_category_batch_report(candidate_results: dict, mode: str) -> dict:
+    category = candidate_results.get("category") or "Unknown"
+    items = []
+    for candidate in candidate_results.get("candidates", []):
+        items.append(
+            {
+                "report_id": f"ER-{datetime.now().strftime('%Y%m%d-%H%M%S')}",
+                "generated_at": datetime.now().astimezone().isoformat(timespec="seconds"),
+                "mode": mode,
+                "target_material": {
+                    "material_id": candidate_results.get("material_id"),
+                    "description": candidate_results.get("material_name"),
+                    "spec": {"raw_text": candidate_results.get("target_spec_text")},
+                },
+                "candidate_material": {
+                    "candidate_id": candidate.get("candidate_id"),
+                    "vendor_name": candidate.get("vendor_name"),
+                    "source_url": candidate.get("source_url"),
+                    "source_type": _snake_source_type(candidate.get("source_type") or "unknown"),
+                    "price_krw": _optional_int(candidate.get("price_krw")),
+                    "lead_time_days": _optional_int(candidate.get("lead_time_days")),
+                    "moq": _optional_int(candidate.get("moq")),
+                    "spec": {"raw_text": candidate.get("spec_text")},
+                },
+                "spec_analysis": {
+                    "critical_spec_check": {
+                        "critical_mismatch": False,
+                        "reason": f"Phase 3 automatic evaluator does not support category: {category}.",
+                    },
+                    "highlighted_differences": [],
+                },
+                "scores": {
+                    "compatibility_score": 0,
+                    "source_trust_score": 0,
+                    "lead_time_score": 0,
+                    "price_score": 0,
+                    "moq_score": 0,
+                    "final_score": 0,
+                },
+                "source_trust_breakdown": {},
+                "source_trust_notes": {
+                    "summary": "자동 평가 범위 밖의 카테고리입니다.",
+                    "positive_factors": [],
+                    "risk_factors": [f"{category} 카테고리는 현재 fastener 평가 규칙으로 검증하지 않습니다."],
+                },
+                "decision_context": {
+                    "decision": "review_required",
+                    "risk_level": "High",
+                    "recommendation_reason": "지원하지 않는 카테고리라 구매 담당자 수동 검토가 필요합니다.",
+                    "approval_conditions": [],
+                    "rejection_reason": None,
+                    "review_required": True,
+                },
+            }
+        )
+    return build_batch_report(items, mode)
 
 
 def build_argument_parser() -> argparse.ArgumentParser:

@@ -13,6 +13,8 @@ from agents.monitor_agent import scan_inventory
 from agents.reporting_agent import write_evaluation_report
 from agents.web_research.agent import run_web_research
 from db.database import get_connection
+from graph.state import make_initial_state
+from graph.workflow import build_graph
 
 
 BASE_DIR = Path(__file__).resolve().parent
@@ -26,7 +28,6 @@ st.set_page_config(page_title="BuyBee", layout="wide", page_icon="B")
 
 
 def load_env_file(path: Path = ENV_FILE) -> None:
-    """Load KEY=VALUE pairs from .env without overwriting shell env vars."""
     if not path.exists():
         return
     for line in path.read_text(encoding="utf-8").splitlines():
@@ -98,10 +99,7 @@ def reset_demo_state() -> None:
     ]:
         st.session_state.pop(key, None)
     st.session_state.messages = [
-        {
-            "role": "assistant",
-            "content": "상태를 초기화했습니다. 실제 재고 DB를 다시 읽습니다.",
-        }
+        {"role": "assistant", "content": "상태를 초기화했습니다. 실제 재고 DB를 다시 읽습니다."}
     ]
     initialize_session()
 
@@ -144,51 +142,28 @@ def evaluation_output_path(material_id: str) -> Path:
     return OUTPUT_DIR / f"evaluation_report_batch_{material_id}.json"
 
 
-def run_actual_pipeline(event: dict) -> tuple[dict, dict | None]:
-    """Run Phase 2 with real web search and Phase 3 when the evaluator supports it."""
-    if not os.environ.get("SERPAPI_API_KEY"):
-        raise RuntimeError(
-            "SERPAPI_API_KEY가 없어 실제 웹 검색을 실행할 수 없습니다. "
-            ".env 또는 터미널 환경변수에 SERPAPI_API_KEY를 설정한 뒤 다시 실행해주세요."
-        )
-
+def run_actual_pipeline(event: dict) -> tuple[dict, dict]:
     event_path = write_shortage_event(event)
     candidate_path = candidate_output_path(event["material_id"])
-    extraction_mode = "llm" if os.environ.get("OPENAI_API_KEY") else "none"
+
+    has_serpapi = bool(os.environ.get("SERPAPI_API_KEY"))
+    has_openai = bool(os.environ.get("OPENAI_API_KEY"))
+    provider = "serpapi" if has_serpapi else "llm_plan"
 
     candidate_results = run_web_research(
         input_path=event_path,
         output_path=candidate_path,
         search_mode="live",
-        query_mode="llm" if os.environ.get("OPENAI_API_KEY") else "deterministic",
-        extraction_mode=extraction_mode,
-        search_provider="serpapi",
+        query_mode="llm" if has_openai else "deterministic",
+        extraction_mode="llm" if has_openai and has_serpapi else "none",
+        search_provider=provider,
         max_results_per_query=3,
         max_candidates=6,
     )
 
-    evaluation_report = None
-    if event.get("category", "").lower() == "fastener":
-        evaluation_report = evaluate_candidates_from_phase2_results(candidate_path, mode="urgent")
-        write_evaluation_report(evaluation_report, evaluation_output_path(event["material_id"]))
-
+    evaluation_report = evaluate_candidates_from_phase2_results(candidate_path, mode="urgent")
+    write_evaluation_report(evaluation_report, evaluation_output_path(event["material_id"]))
     return candidate_results, evaluation_report
-
-
-def score_source_readiness(candidate: dict) -> int:
-    score = 0
-    source_type = str(candidate.get("source_type") or "").lower()
-    if source_type in {"official_distributor", "manufacturer_page"}:
-        score += 30
-    elif source_type == "industrial_marketplace":
-        score += 22
-    elif source_type == "marketplace":
-        score += 12
-    score += 20 if candidate.get("price_listed") else 0
-    score += 20 if candidate.get("stock_listed") else 0
-    score += 20 if candidate.get("leadtime_listed") else 0
-    score += 10 if candidate.get("source_url") else 0
-    return min(score, 100)
 
 
 def build_candidate_table(candidate_results: dict | None, evaluation_report: dict | None) -> pd.DataFrame:
@@ -220,19 +195,18 @@ def build_candidate_table(candidate_results: dict | None, evaluation_report: dic
 
     rows = []
     for candidate in (candidate_results or {}).get("candidates", []):
-        readiness_score = score_source_readiness(candidate)
         rows.append(
             {
                 "candidate_id": candidate.get("candidate_id"),
                 "vendor_name": candidate.get("vendor_name"),
-                "decision": "human_review",
+                "decision": "not_evaluated",
                 "risk_level": "Review",
                 "price_krw": candidate.get("price_krw"),
                 "lead_time_days": candidate.get("lead_time_days"),
                 "source_type": candidate.get("source_type"),
                 "compatibility_score": None,
-                "source_trust_score": readiness_score,
-                "final_score": readiness_score,
+                "source_trust_score": None,
+                "final_score": None,
                 "risk_note": candidate.get("spec_evidence"),
                 "source_url": candidate.get("source_url"),
             }
@@ -240,48 +214,71 @@ def build_candidate_table(candidate_results: dict | None, evaluation_report: dic
     return pd.DataFrame(rows)
 
 
-def get_top_candidate(candidate_results: dict | None, evaluation_report: dict | None) -> dict | None:
-    if evaluation_report:
-        top_id = evaluation_report.get("top_candidate_id")
-        items = evaluation_report.get("items", [])
-        top_item = next(
-            (
-                item
-                for item in items
-                if item.get("candidate_material", {}).get("candidate_id") == top_id
-            ),
-            items[0] if items else None,
-        )
-        return top_item.get("candidate_material") if top_item else None
-
-    candidates = (candidate_results or {}).get("candidates", [])
-    if not candidates:
+def get_top_evaluation_item(evaluation_report: dict | None) -> dict | None:
+    if not evaluation_report:
         return None
-    return max(candidates, key=score_source_readiness)
+    items = evaluation_report.get("items", [])
+    top_id = evaluation_report.get("top_candidate_id")
+    return next(
+        (item for item in items if item.get("candidate_material", {}).get("candidate_id") == top_id),
+        items[0] if items else None,
+    )
 
 
-def create_po_result(event: dict, candidate_results: dict | None, evaluation_report: dict | None) -> dict:
-    candidate = get_top_candidate(candidate_results, evaluation_report)
-    if not candidate:
-        raise RuntimeError("승인할 후보가 없습니다.")
+def run_phase4_approval(event: dict, evaluation_report: dict) -> dict:
+    graph = build_graph()
+    state = make_initial_state(f"streamlit-{event['material_id']}-{datetime.now().strftime('%H%M%S')}")
+    state["shortage_event"] = {
+        "material_id": event.get("material_id"),
+        "description": event.get("material_name"),
+        "shortage_qty": event.get("shortage_qty", 0),
+    }
+    state["evaluation_report_batch"] = evaluation_report
 
-    unit_price = int(candidate.get("price_krw") or 0)
-    quantity = int(event.get("shortage_qty") or 0)
-    total_amount = unit_price * quantity
+    config = {"configurable": {"thread_id": state["workflow_id"]}}
+    for _ in graph.stream(state, config=config):
+        pass
+
+    current_state = graph.get_state(config).values
+    if current_state.get("status") != "APPROVAL_PENDING":
+        raise RuntimeError(f"Phase 4 approval is not available: {current_state.get('status')}")
+
+    current_state["approval"] = {
+        "required": True,
+        "approved": True,
+        "approver": "streamlit_user",
+        "approved_at": datetime.now().astimezone().isoformat(timespec="seconds"),
+    }
+    graph.update_state(config, current_state)
+    for _ in graph.stream(None, config=config):
+        pass
+    return graph.get_state(config).values
+
+
+def write_po_from_phase4_state(final_state: dict, evaluation_report: dict) -> dict:
+    po_draft = final_state.get("po_draft")
+    if not po_draft:
+        raise RuntimeError("Phase 4 did not produce po_draft.")
+
+    item = get_top_evaluation_item(evaluation_report) or {}
+    candidate = item.get("candidate_material", {})
+    scores = item.get("scores", {})
+    decision = item.get("decision_context", {})
     po_row = {
         "PO_DRAFT_NO": f"PO-DRAFT-{datetime.now().strftime('%Y%m%d%H%M%S')}",
         "CREATED_AT": datetime.now().isoformat(timespec="seconds"),
-        "WORKFLOW_STATUS": "PO_DRAFT_CREATED",
-        "SOURCE": "live_phase2_web_research",
-        "TARGET_MATERIAL_ID": event.get("material_id"),
-        "TARGET_DESCRIPTION": event.get("material_name"),
+        "WORKFLOW_STATUS": final_state.get("status"),
+        "SOURCE": "phase4_po_draft",
+        "VENDOR_NAME": po_draft.get("vendor_name"),
+        "MATERIAL_ID": po_draft.get("material_code"),
         "CANDIDATE_ID": candidate.get("candidate_id"),
-        "VENDOR_NAME": candidate.get("vendor_name"),
-        "ORDER_QTY": quantity,
-        "UNIT_PRICE_KRW": unit_price,
-        "TOTAL_AMOUNT_KRW": total_amount,
+        "UNIT_PRICE_KRW": po_draft.get("unit_price"),
+        "ORDER_QTY": po_draft.get("quantity"),
+        "TOTAL_AMOUNT_KRW": po_draft.get("total_price"),
         "LEAD_TIME_DAYS": candidate.get("lead_time_days"),
         "SOURCE_URL": candidate.get("source_url"),
+        "FINAL_SCORE": scores.get("final_score"),
+        "RISK_NOTE": decision.get("recommendation_reason"),
     }
     pd.DataFrame([po_row]).to_csv(PO_FILE, index=False)
     st.session_state.po_created = True
@@ -303,34 +300,31 @@ def assistant_reply(prompt: str, event: dict) -> str:
 
     if any(word in text for word in ["대체", "찾아", "검색", "후보", "업체"]):
         try:
-            with st.spinner("실제 웹 검색과 후보 수집을 실행하는 중입니다..."):
+            with st.spinner("웹 리서치와 평가를 실행하는 중입니다..."):
                 candidate_results, evaluation_report = run_actual_pipeline(event)
         except Exception as exc:
             st.session_state.last_error = str(exc)
             st.session_state.approval_ready = False
-            return f"실제 파이프라인 실행이 실패했습니다.\n\n`{exc}`"
+            return f"파이프라인 실행이 실패했습니다.\n\n`{exc}`"
 
         st.session_state.candidate_results = candidate_results
         st.session_state.evaluation_report = evaluation_report
-        table = build_candidate_table(candidate_results, evaluation_report)
         st.session_state.step = "candidates_loaded"
-        st.session_state.approval_ready = not table.empty
-        top = get_top_candidate(candidate_results, evaluation_report)
-        if evaluation_report:
-            action = evaluation_report.get("next_action")
-            st.session_state.approval_ready = action == "approval_pending"
+
+        table = build_candidate_table(candidate_results, evaluation_report)
+        action = evaluation_report.get("next_action")
+        st.session_state.approval_ready = action == "approval_pending"
+        top_item = get_top_evaluation_item(evaluation_report)
+        top_candidate = top_item.get("candidate_material", {}) if top_item else {}
+
+        if action == "approval_pending":
             return (
-                f"실제 웹 검색 후보 {len(table)}개를 수집하고 Phase 3 평가까지 완료했습니다. "
-                f"다음 액션은 **{action}**입니다. 1순위 후보는 "
-                f"**{top.get('vendor_name')} / {top.get('candidate_id')}**입니다."
+                f"후보 {len(table)}개를 수집하고 Phase 3/4 승인 대기 조건을 확인했습니다. "
+                f"승인 대상은 **{top_candidate.get('vendor_name')} / {top_candidate.get('candidate_id')}**입니다."
             )
-        return (
-            f"실제 웹 검색 후보 {len(table)}개를 수집했습니다. "
-            "현재 자재 카테고리는 fastener 평가 엔진 대상이 아니어서 구매 담당자 검토 기준으로 표시합니다. "
-            f"우선 검토 후보는 **{top.get('vendor_name')} / {top.get('candidate_id')}**입니다."
-            if top
-            else "실제 검색은 실행됐지만 승인 가능한 후보를 찾지 못했습니다."
-        )
+        if action == "manual_review":
+            return "후보는 찾았지만 자동 승인 대상이 아닙니다. 구매 담당자 수동 검토가 필요해 PO 초안 생성을 잠급니다."
+        return "승인 가능한 후보를 찾지 못했습니다. PO 초안 생성은 잠겨 있습니다."
 
     if any(word in text for word in ["반려", "거절", "보류", "중단"]):
         st.session_state.step = "rejected"
@@ -338,20 +332,17 @@ def assistant_reply(prompt: str, event: dict) -> str:
         return "반려로 기록했습니다. PO 초안은 생성하지 않았습니다."
 
     if any(word in text for word in ["승인", "발주", "진행", "ok", "yes", "응"]):
-        if not st.session_state.approval_ready:
-            return "아직 승인 가능한 실제 검색 후보가 없습니다. 먼저 `대체품 찾아줘`로 실제 파이프라인을 실행해주세요."
+        if not st.session_state.approval_ready or not st.session_state.evaluation_report:
+            return "아직 Phase 4 승인 대기 상태가 아닙니다. 먼저 `대체품 찾아줘`로 후보 평가를 완료해주세요."
         try:
-            po_row = create_po_result(
-                event,
-                st.session_state.candidate_results,
-                st.session_state.evaluation_report,
-            )
+            final_state = run_phase4_approval(event, st.session_state.evaluation_report)
+            po_row = write_po_from_phase4_state(final_state, st.session_state.evaluation_report)
         except Exception as exc:
             return f"PO 초안 생성에 실패했습니다.\n\n`{exc}`"
         st.session_state.step = "po_created"
         st.session_state.approval_ready = False
         return (
-            f"승인 완료했습니다. 실제 검색 후보 기준으로 `{PO_FILE.name}`를 생성했습니다.\n\n"
+            f"승인 완료했습니다. Phase 4 `po_draft` 기준으로 `{PO_FILE.name}`를 생성했습니다.\n\n"
             f"{po_row['PO_DRAFT_NO']} / {po_row['VENDOR_NAME']} / "
             f"{po_row['ORDER_QTY']}개 / {po_row['TOTAL_AMOUNT_KRW']:,}원"
         )
@@ -377,13 +368,13 @@ def render_inventory(inventory: pd.DataFrame, shortages: pd.DataFrame) -> None:
                 "plant",
             ]
         ],
-        use_container_width=True,
+        width="stretch",
         hide_index=True,
     )
 
 
 def render_pipeline_results(event: dict) -> None:
-    st.subheader("실제 웹 리서치 결과")
+    st.subheader("웹 리서치 및 평가 결과")
     candidate_results = st.session_state.candidate_results
     evaluation_report = st.session_state.evaluation_report
 
@@ -391,13 +382,13 @@ def render_pipeline_results(event: dict) -> None:
         st.error(st.session_state.last_error)
 
     if not candidate_results:
-        st.info("아직 실제 웹 검색을 실행하지 않았습니다. 우측 승인 창에서 `대체품 찾아줘`를 입력하세요.")
+        st.info("아직 웹 검색을 실행하지 않았습니다. 우측 승인 창에서 `대체품 찾아줘`를 입력하세요.")
         return
 
     c1, c2, c3, c4 = st.columns(4)
     c1.metric("검색 ID", candidate_results.get("search_id", "-"))
     c2.metric("검색 후보", len(candidate_results.get("candidates", [])))
-    c3.metric("평가 모드", "Phase 3" if evaluation_report else "Human review")
+    c3.metric("다음 액션", evaluation_report.get("next_action", "-") if evaluation_report else "-")
     c4.metric("예산 한도", f"{BUDGET_LIMIT_KRW:,}원")
 
     st.markdown("**부족 자재 스펙**")
@@ -425,25 +416,30 @@ def render_pipeline_results(event: dict) -> None:
                 "source_url",
             ]
         ],
-        use_container_width=True,
+        width="stretch",
         hide_index=True,
     )
 
-    top = get_top_candidate(candidate_results, evaluation_report)
-    if top:
-        st.success(f"현재 승인 대상 후보: {top.get('vendor_name')} / {top.get('candidate_id')}")
-        st.caption(f"출처 URL: {top.get('source_url')}")
+    top_item = get_top_evaluation_item(evaluation_report)
+    if top_item:
+        candidate = top_item.get("candidate_material", {})
+        decision = top_item.get("decision_context", {})
+        st.success(
+            f"현재 후보: {candidate.get('vendor_name')} / {candidate.get('candidate_id')} "
+            f"({decision.get('decision')})"
+        )
+        st.caption(f"출처 URL: {candidate.get('source_url')}")
 
 
 def render_po() -> None:
     if PO_FILE.exists():
         st.subheader("PO 초안")
-        st.dataframe(pd.read_csv(PO_FILE), use_container_width=True, hide_index=True)
+        st.dataframe(pd.read_csv(PO_FILE), width="stretch", hide_index=True)
 
 
 def render_assistant(event: dict) -> None:
     st.subheader("AI Personal Assistant")
-    st.caption("실제 파이프라인 실행 및 Human-in-the-loop 승인")
+    st.caption("Phase 4 승인 게이트를 거쳐 PO 초안을 생성합니다.")
 
     with st.container(height=500):
         for message in st.session_state.messages:
@@ -458,10 +454,10 @@ def render_assistant(event: dict) -> None:
         st.rerun()
 
     cols = st.columns(2)
-    if cols[0].button("상태 초기화", use_container_width=True):
+    if cols[0].button("상태 초기화", width="stretch"):
         reset_demo_state()
         st.rerun()
-    if cols[1].button("실제 검색 실행", use_container_width=True):
+    if cols[1].button("검색 실행", width="stretch"):
         response = assistant_reply("대체품 찾아줘", event)
         st.session_state.messages.append({"role": "assistant", "content": response})
         st.rerun()
@@ -473,7 +469,7 @@ def main() -> None:
     shortages = shortage_rows(inventory)
 
     st.title("BuyBee 실제 데이터 대체 자재 승인 대시보드")
-    st.caption("SQLite 재고 DB에서 부족 자재를 읽고, 승인 요청 시 실제 웹 검색 기반 후보 수집을 실행합니다.")
+    st.caption("SQLite 재고 DB에서 부족 자재를 읽고, Phase 4 승인 게이트 이후에만 PO 초안을 생성합니다.")
 
     if shortages.empty:
         st.success("현재 부족 자재가 없습니다.")
@@ -490,12 +486,11 @@ def main() -> None:
     events = shortage_events_by_material()
     event = events[selected_material]
 
-    st.sidebar.markdown("**실제 검색 설정**")
-    st.sidebar.write("검색 제공자: SerpAPI")
-    st.sidebar.write("검색 범위: 한국 사이트만")
+    st.sidebar.markdown("**검색 설정**")
+    st.sidebar.write("검색 제공자:", "SerpAPI" if os.environ.get("SERPAPI_API_KEY") else "llm_plan")
     st.sidebar.write("상세 추출:", "OpenAI LLM" if os.environ.get("OPENAI_API_KEY") else "검색 결과 스니펫")
     if not os.environ.get("SERPAPI_API_KEY"):
-        st.sidebar.warning("SERPAPI_API_KEY가 없어 실제 검색 실행은 실패합니다.")
+        st.sidebar.info("SERPAPI_API_KEY가 없어 오프라인 검색 계획 모드로 실행됩니다.")
 
     top_metrics = st.columns(4)
     top_metrics[0].metric("선택 자재", event["material_id"])

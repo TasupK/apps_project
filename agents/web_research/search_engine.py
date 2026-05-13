@@ -81,13 +81,11 @@ def collect_search_results(
 
 
 def get_verified_search_results(results: list[dict]) -> list[dict]:
-    """Return verified search results from Korean sites only."""
+    """Return only search results backed by an actual provider URL."""
     return [
         result
         for result in results
-        if result.get("verified")
-        and result.get("url")
-        and _is_korean_site(result.get("url"))
+        if result.get("verified") and result.get("url")
     ]
 
 
@@ -212,6 +210,8 @@ def _purchase_signal_score(result: dict) -> int:
         score += 4
     if result.get("source_type_hint") == "marketplace":
         score += 1
+    if _is_korean_site(result.get("url")):
+        score += 3
     return score
 
 
@@ -255,4 +255,3 @@ def _search_with_serpapi(query: str, max_results: int = 5) -> list[dict]:
             )
         )
     return results
-

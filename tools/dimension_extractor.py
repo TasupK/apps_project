@@ -72,7 +72,15 @@ def get_search_keywords(name: str, spec: str, category: str = None, brand: str =
         dim_str = f"Mod{attrs['module']}"
 
     # 3. 키워드 조립
-    final_keywords = []
+    final_keywords = [name]
+    if "inner_diameter" in attrs:
+        final_keywords.append(f"{attrs['inner_diameter']}mm")
+    if "outer_diameter" in attrs:
+        final_keywords.append(f"{attrs['outer_diameter']}mm")
+    if "width" in attrs:
+        final_keywords.append(f"{attrs['width']}mm")
+    final_keywords.extend(expanded)
+
     for syn in expanded[:2]: # 너무 많아지지 않게 주요 동의어 2개만 조합
         query = f"{syn} {dim_str}"
         if brand: query += f" {brand}"
