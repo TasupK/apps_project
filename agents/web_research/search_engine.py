@@ -81,8 +81,44 @@ def collect_search_results(
 
 
 def get_verified_search_results(results: list[dict]) -> list[dict]:
-    """Return only search results backed by an actual provider URL."""
-    return [result for result in results if result.get("verified") and result.get("url")]
+    """Return verified search results from Korean sites only."""
+    return [
+        result
+        for result in results
+        if result.get("verified")
+        and result.get("url")
+        and _is_korean_site(result.get("url"))
+    ]
+
+
+KOREAN_SITE_HOSTS = {
+    "coupang.com",
+    "www.coupang.com",
+    "naver.com",
+    "shopping.naver.com",
+    "smartstore.naver.com",
+    "gmarket.co.kr",
+    "www.gmarket.co.kr",
+    "auction.co.kr",
+    "www.auction.co.kr",
+    "11st.co.kr",
+    "www.11st.co.kr",
+    "daara.co.kr",
+    "www.daara.co.kr",
+    "kr.misumi-ec.com",
+}
+
+
+def _is_korean_site(url: object) -> bool:
+    parsed = urllib.parse.urlsplit(str(url or "").strip())
+    host = parsed.netloc.lower().split("@")[-1].split(":")[0]
+    if not host:
+        return False
+    if host.endswith(".kr"):
+        return True
+    if host in KOREAN_SITE_HOSTS:
+        return True
+    return any(host.endswith(f".{domain}") for domain in KOREAN_SITE_HOSTS)
 
 
 TRACKING_QUERY_PARAMS = {
@@ -191,7 +227,18 @@ def _search_with_serpapi(query: str, max_results: int = 5) -> list[dict]:
     if not api_key:
         raise RuntimeError("SERPAPI_API_KEY is required when PHASE2_SEARCH_PROVIDER=serpapi")
 
-    params = urllib.parse.urlencode({"engine": "google", "q": query, "api_key": api_key, "num": max_results})
+    params = urllib.parse.urlencode(
+        {
+            "engine": "google",
+            "google_domain": "google.co.kr",
+            "gl": "kr",
+            "hl": "ko",
+            "location": "South Korea",
+            "q": query,
+            "api_key": api_key,
+            "num": max_results,
+        }
+    )
     payload = _get_json(f"https://serpapi.com/search.json?{params}")
     organic_results = payload.get("organic_results", [])
 
@@ -208,5 +255,4 @@ def _search_with_serpapi(query: str, max_results: int = 5) -> list[dict]:
             )
         )
     return results
-
 
