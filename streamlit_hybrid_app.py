@@ -1,4 +1,4 @@
-from __future__ import annotations
+﻿from __future__ import annotations
 
 import io
 import json
@@ -447,8 +447,9 @@ def initialize_session() -> None:
         "approval_ready": False,
         "candidate_results": None,
         "evaluation_report": None,
+        "selected_candidate_id": None,
         "selected_material_id": None,
-        "po_created": PO_FILE.exists(),
+        "po_created": False,
         "po_row": None,
         "last_error": None,
         "messages": [
@@ -468,6 +469,7 @@ def reset_demo_state() -> None:
         "approval_ready",
         "candidate_results",
         "evaluation_report",
+        "selected_candidate_id",
         "po_created",
         "po_row",
         "last_error",
@@ -489,6 +491,7 @@ def clear_pipeline_state_for_material_change(selected_material_id: str) -> None:
         "candidate_results",
         "evaluation_report",
         "approval_ready",
+        "selected_candidate_id",
         "po_row",
         "last_error",
     ]:
@@ -622,7 +625,39 @@ def get_top_evaluation_item(evaluation_report: dict | None) -> dict | None:
     )
 
 
-def run_phase4_approval(event: dict, evaluation_report: dict) -> dict:
+def get_evaluation_item_by_candidate_id(evaluation_report: dict | None, candidate_id: str | None) -> dict | None:
+    if not evaluation_report or not candidate_id:
+        return None
+    return next(
+        (
+            item for item in evaluation_report.get("items", [])
+            if str(item.get("candidate_material", {}).get("candidate_id")) == str(candidate_id)
+        ),
+        None,
+    )
+
+
+def is_candidate_po_selectable(item: dict | None) -> bool:
+    if not item:
+        return False
+    decision = str(item.get("decision_context", {}).get("decision", "")).lower()
+    return decision in {"recommend", "conditional_approve", "review_required"}
+
+
+def report_with_selected_candidate(evaluation_report: dict, candidate_id: str) -> dict:
+    item = get_evaluation_item_by_candidate_id(evaluation_report, candidate_id)
+    if not item:
+        raise RuntimeError(f"Selected candidate not found: {candidate_id}")
+    if not is_candidate_po_selectable(item):
+        decision = item.get("decision_context", {}).get("decision", "unknown")
+        raise RuntimeError(f"Selected candidate cannot be converted to PO: {decision}")
+    selected_report = dict(evaluation_report)
+    selected_report["top_candidate_id"] = candidate_id
+    selected_report["next_action"] = "approval_pending"
+    return selected_report
+
+
+def run_phase4_approval(event: dict, evaluation_report: dict, selected_candidate_id: str) -> dict:
     graph = build_graph()
     state = make_initial_state(f"streamlit-{event['material_id']}-{datetime.now().strftime('%H%M%S')}")
     state["shortage_event"] = {
@@ -630,7 +665,7 @@ def run_phase4_approval(event: dict, evaluation_report: dict) -> dict:
         "description": event.get("material_name"),
         "shortage_qty": event.get("shortage_qty", 0),
     }
-    state["evaluation_report_batch"] = evaluation_report
+    state["evaluation_report_batch"] = report_with_selected_candidate(evaluation_report, selected_candidate_id)
 
     config = {"configurable": {"thread_id": state["workflow_id"]}}
     for _ in graph.stream(state, config=config):
@@ -652,12 +687,12 @@ def run_phase4_approval(event: dict, evaluation_report: dict) -> dict:
     return graph.get_state(config).values
 
 
-def write_po_from_phase4_state(final_state: dict, evaluation_report: dict) -> dict:
+def write_po_from_phase4_state(final_state: dict, evaluation_report: dict, selected_candidate_id: str) -> dict:
     po_draft = final_state.get("po_draft")
     if not po_draft:
         raise RuntimeError("Phase 4 did not produce po_draft.")
 
-    item = get_top_evaluation_item(evaluation_report) or {}
+    item = get_evaluation_item_by_candidate_id(evaluation_report, selected_candidate_id) or {}
     candidate = item.get("candidate_material", {})
     scores = item.get("scores", {})
     decision = item.get("decision_context", {})
@@ -693,7 +728,7 @@ def assistant_reply(prompt: str, event: dict) -> str:
         st.session_state.approval_ready = False
         return (
             f"실제 DB 기준 **{event['material_id']} ({event['material_name']})** 재고는 "
-            f"{event['current_stock']}개이고 안전재고는 {event['safety_stock']}개입니다. "
+            f"{event['current_stock']}개이고 최소 보유 수량은 {event['safety_stock']}개입니다. "
             f"부족 수량은 **{event['shortage_qty']}개**입니다."
         )
 
@@ -710,6 +745,9 @@ def assistant_reply(prompt: str, event: dict) -> str:
         st.session_state.evaluation_report = evaluation_report
         st.session_state.active_pipeline_material_id = event["material_id"]
         st.session_state.step = "candidates_loaded"
+        st.session_state.selected_candidate_id = None
+        st.session_state.po_created = False
+        st.session_state.po_row = None
 
         table = build_candidate_table(candidate_results, evaluation_report)
         action = evaluation_report.get("next_action")
@@ -723,8 +761,9 @@ def assistant_reply(prompt: str, event: dict) -> str:
                 f"승인 대상은 **{top_candidate.get('vendor_name')} / {top_candidate.get('candidate_id')}**입니다."
             )
         if action == "manual_review":
-            return "후보는 찾았지만 자동 승인 대상이 아닙니다. 구매 담당자 수동 검토가 필요해 PO 초안 생성을 잠급니다."
-        return "승인 가능한 후보를 찾지 못했습니다. PO 초안 생성은 잠겨 있습니다."
+            st.session_state.approval_ready = True
+            return "후보를 찾았습니다. 후보 표 아래에서 최종 후보를 선택하면 PO를 생성할 수 있습니다."
+        return "PO로 전환할 수 있는 후보를 찾지 못했습니다. reject 후보만 있는지 평가 결과를 확인해 주세요."
 
     if any(word in text for word in ["반려", "거절", "보류", "중단"]):
         st.session_state.step = "rejected"
@@ -733,16 +772,19 @@ def assistant_reply(prompt: str, event: dict) -> str:
 
     if any(word in text for word in ["승인", "발주", "진행", "ok", "yes", "응"]):
         if not st.session_state.approval_ready or not st.session_state.evaluation_report:
-            return "아직 Phase 4 승인 대기 상태가 아닙니다. 먼저 `대체품 찾아줘`로 후보 평가를 완료해주세요."
+            return "아직 후보 평가가 완료되지 않았습니다. 먼저 `대체품 찾아줘`로 후보 검색과 평가를 실행해주세요."
         try:
-            final_state = run_phase4_approval(event, st.session_state.evaluation_report)
-            po_row = write_po_from_phase4_state(final_state, st.session_state.evaluation_report)
+            selected_candidate_id = st.session_state.get("selected_candidate_id")
+            if not selected_candidate_id:
+                return "최종 후보를 먼저 선택해주세요. 후보 표 아래 선택 박스에서 PO를 생성할 후보를 고를 수 있습니다."
+            final_state = run_phase4_approval(event, st.session_state.evaluation_report, selected_candidate_id)
+            po_row = write_po_from_phase4_state(final_state, st.session_state.evaluation_report, selected_candidate_id)
         except Exception as exc:
             return f"PO 초안 생성에 실패했습니다.\n\n`{exc}`"
         st.session_state.step = "po_created"
         st.session_state.approval_ready = False
         return (
-            f"승인 완료했습니다. Phase 4 `po_draft` 기준으로 `{PO_FILE.name}`를 생성했습니다.\n\n"
+            f"선택한 후보 기준으로 `{PO_FILE.name}`를 생성했습니다.\n\n"
             f"{po_row['PO_DRAFT_NO']} / {po_row['VENDOR_NAME']} / "
             f"{po_row['ORDER_QTY']}개 / {po_row['TOTAL_AMOUNT_KRW']:,}원"
         )
@@ -776,7 +818,7 @@ def render_page_header(has_serpapi: bool) -> None:
                 <div class="page-header-divider"></div>
                 <div class="page-header-title">
                     Procurement Intelligence Platform<br>
-                    대체 자재 발굴 · Phase 4 승인 게이트 · 자동 PO 생성
+                    부족 자재 탐지 · 대체 후보 비교 · 발주 문서 생성
                 </div>
             </div>
             <div style="display:flex;align-items:center;gap:12px;">
@@ -846,7 +888,7 @@ def render_sidebar(shortages: pd.DataFrame, selected_default: str | None) -> str
                     <span style="color:rgba(255,255,255,0.85);font-weight:500;">{int(shortage_row['current_stock'])}개</span>
                 </div>
                 <div style="display:flex;justify-content:space-between;margin-bottom:10px;color:rgba(255,255,255,0.45);">
-                    <span>안전 재고</span>
+                    <span>최소 보유 수량</span>
                     <span style="color:rgba(255,255,255,0.85);font-weight:500;">{int(shortage_row['safety_stock'])}개</span>
                 </div>
                 <div style="background:rgba(255,255,255,0.1);border-radius:2px;height:3px;overflow:hidden;">
@@ -914,14 +956,35 @@ def render_top_metrics(event: dict) -> None:
 def render_inventory(inventory: pd.DataFrame, shortages: pd.DataFrame) -> None:
     st.markdown('<div class="section-title"><span>01</span>실시간 재고 현황</div>', unsafe_allow_html=True)
 
-    chart = inventory[["material_name", "current_stock", "safety_stock"]].set_index("material_name")
+    chart = (
+        inventory[["material_name", "current_stock", "safety_stock"]]
+        .rename(columns={
+            "current_stock": "현재 재고",
+            "safety_stock": "최소 보유 수량",
+        })
+        .set_index("material_name")
+    )
     st.bar_chart(chart, color=["#DC2626", "#2563EB"], use_container_width=True)
 
     display_cols = [
         "material_id", "material_name", "category", "brand", "mpn",
         "current_stock", "safety_stock", "shortage_qty", "plant",
     ]
-    st.dataframe(shortages[display_cols], use_container_width=True, hide_index=True)
+    st.dataframe(
+        shortages[display_cols].rename(columns={
+            "material_id": "자재 ID",
+            "material_name": "자재명",
+            "category": "카테고리",
+            "brand": "브랜드",
+            "mpn": "MPN",
+            "current_stock": "현재 재고",
+            "safety_stock": "최소 보유 수량",
+            "shortage_qty": "부족 수량",
+            "plant": "플랜트",
+        }),
+        use_container_width=True,
+        hide_index=True,
+    )
 
 
 def render_pipeline_results(event: dict) -> None:
@@ -983,7 +1046,72 @@ def render_pipeline_results(event: dict) -> None:
         hide_index=True,
     )
 
+    po_selectable_items = [
+        item for item in (evaluation_report or {}).get("items", [])
+        if is_candidate_po_selectable(item)
+    ]
+
     if top_item:
+        candidate = top_item.get("candidate_material", {})
+        decision = top_item.get("decision_context", {})
+        scores = top_item.get("scores", {})
+        url = candidate.get("source_url", "")
+        url_html = f'<a href="{url}" target="_blank" style="color:var(--accent);font-size:0.78rem;">{url}</a>' if url else "—"
+        st.markdown(
+            f"""
+            <div class="top-candidate-card">
+                <div class="tc-label">평가 1순위 후보</div>
+                <div class="tc-name">{candidate.get("vendor_name", "—")} &nbsp;·&nbsp; {candidate.get("candidate_id", "—")}</div>
+                <div class="tc-meta">
+                    결정: <strong>{decision.get("decision", "—")}</strong> &nbsp;|&nbsp;
+                    리스크: <strong>{decision.get("risk_level", "—")}</strong> &nbsp;|&nbsp;
+                    최종 점수: <strong>{scores.get("final_score", "—")}</strong>
+                </div>
+                <div style="margin-top:6px;">{url_html}</div>
+            </div>
+            """,
+            unsafe_allow_html=True,
+        )
+
+    if po_selectable_items:
+        options = [item.get("candidate_material", {}).get("candidate_id") for item in po_selectable_items]
+        labels = {}
+        for item in po_selectable_items:
+            candidate = item.get("candidate_material", {})
+            scores = item.get("scores", {})
+            decision = item.get("decision_context", {})
+            cid = candidate.get("candidate_id")
+            labels[cid] = (
+                f"{cid} | {candidate.get('vendor_name', '-')} | "
+                f"{decision.get('decision', '-')} | score {scores.get('final_score', '-')}"
+            )
+        current = st.session_state.get("selected_candidate_id")
+        index = options.index(current) if current in options else 0
+        selected = st.selectbox(
+            "최종 후보 선택",
+            options=options,
+            index=index,
+            format_func=lambda value: labels.get(value, str(value)),
+            key="selected_candidate_id",
+        )
+        if st.button("선택한 후보로 PO 생성", use_container_width=True):
+            try:
+                final_state = run_phase4_approval(event, evaluation_report, selected)
+                po_row = write_po_from_phase4_state(final_state, evaluation_report, selected)
+            except Exception as exc:
+                st.error(f"PO 생성에 실패했습니다: {exc}")
+                return
+            st.session_state.step = "po_created"
+            st.session_state.approval_ready = False
+            st.success(
+                f"PO 생성 완료: {po_row['PO_DRAFT_NO']} / {po_row['VENDOR_NAME']} / "
+                f"{po_row['ORDER_QTY']}개 / {int(po_row['TOTAL_AMOUNT_KRW']):,}원"
+            )
+            st.rerun()
+    elif evaluation_report:
+        st.info("PO로 전환할 수 있는 후보가 없습니다. reject 후보만 있는지 평가 결과를 확인해 주세요.")
+
+    if False and top_item:
         candidate = top_item.get("candidate_material", {})
         decision = top_item.get("decision_context", {})
         scores = top_item.get("scores", {})
@@ -1181,7 +1309,7 @@ def build_excel_report(event: dict) -> bytes:
         ("브랜드",          event.get("brand", "")),
         ("MPN",            event.get("mpn", "")),
         ("현재 재고",       event.get("current_stock", "")),
-        ("안전 재고",       event.get("safety_stock", "")),
+        ("최소 보유 수량",  event.get("safety_stock", "")),
         ("부족 수량",       event.get("shortage_qty", "")),
         ("기술 스펙",       event.get("technical_specification", "")),
         ("플랜트",          event.get("plant", "")),
@@ -1207,6 +1335,144 @@ def build_excel_report(event: dict) -> bytes:
     return buf.getvalue()
 
 
+def _po_money(value) -> str:
+    try:
+        return f"KRW {int(float(value)):,}"
+    except (TypeError, ValueError):
+        return "KRW 0"
+
+
+def build_po_word_document(event: dict, row: pd.Series | dict) -> bytes:
+    from docx import Document
+
+    doc = Document()
+    doc.add_paragraph(f"Purchase Order no: {row.get('PO_DRAFT_NO', '-')}")
+    doc.add_paragraph(f"Date of issue: {datetime.now().strftime('%Y-%m-%d')}")
+    doc.add_paragraph("")
+    doc.add_paragraph(f"Supplier: {row.get('VENDOR_NAME', '-')}")
+    doc.add_paragraph("Buyer: BuyBee Procurement")
+    doc.add_paragraph("")
+    doc.add_paragraph("ITEMS")
+    table = doc.add_table(rows=2, cols=8)
+    table.style = "Table Grid"
+    headers = ["No.", "Description", "Qty", "UM", "Net price", "Net worth", "VAT [%]", "Gross worth"]
+    for idx, header in enumerate(headers):
+        table.cell(0, idx).text = header
+    qty = int(row.get("ORDER_QTY", 0) or 0)
+    unit_price = int(row.get("UNIT_PRICE_KRW", 0) or 0)
+    net = qty * unit_price
+    gross = round(net * 1.1)
+    values = [
+        "1.",
+        f"{event.get('material_name', '-')}\nMaterial ID: {row.get('MATERIAL_ID', '-')}\nCandidate ID: {row.get('CANDIDATE_ID', '-')}",
+        str(qty),
+        "each",
+        _po_money(unit_price),
+        _po_money(net),
+        "10%",
+        _po_money(gross),
+    ]
+    for idx, value in enumerate(values):
+        table.cell(1, idx).text = value
+    doc.add_paragraph("")
+    doc.add_paragraph("SUMMARY")
+    summary = doc.add_table(rows=3, cols=4)
+    summary.style = "Table Grid"
+    for idx, header in enumerate(["VAT [%]", "Net worth", "VAT", "Gross worth"]):
+        summary.cell(0, idx).text = header
+    for idx, value in enumerate(["10%", _po_money(net), _po_money(round(net * 0.1)), _po_money(gross)]):
+        summary.cell(1, idx).text = value
+    for idx, value in enumerate(["Total", _po_money(net), _po_money(round(net * 0.1)), _po_money(gross)]):
+        summary.cell(2, idx).text = value
+    buf = io.BytesIO()
+    doc.save(buf)
+    return buf.getvalue()
+
+
+def build_po_pdf_document(event: dict, row: pd.Series | dict) -> bytes:
+    from reportlab.lib import colors
+    from reportlab.lib.pagesizes import A4
+    from reportlab.lib.styles import getSampleStyleSheet
+    from reportlab.lib.units import mm
+    from reportlab.pdfbase import pdfmetrics
+    from reportlab.pdfbase.ttfonts import TTFont
+    from reportlab.platypus import Paragraph, SimpleDocTemplate, Spacer, Table, TableStyle
+
+    font_name = "Helvetica"
+    font_bold_name = "Helvetica-Bold"
+    malgun = Path(r"C:\Windows\Fonts\malgun.ttf")
+    malgun_bold = Path(r"C:\Windows\Fonts\malgunbd.ttf")
+    if malgun.exists():
+        font_name = "MalgunGothic"
+        if font_name not in pdfmetrics.getRegisteredFontNames():
+            pdfmetrics.registerFont(TTFont(font_name, str(malgun)))
+    if malgun_bold.exists():
+        font_bold_name = "MalgunGothic-Bold"
+        if font_bold_name not in pdfmetrics.getRegisteredFontNames():
+            pdfmetrics.registerFont(TTFont(font_bold_name, str(malgun_bold)))
+
+    qty = int(row.get("ORDER_QTY", 0) or 0)
+    unit_price = int(row.get("UNIT_PRICE_KRW", 0) or 0)
+    net = qty * unit_price
+    vat = round(net * 0.1)
+    gross = net + vat
+    buf = io.BytesIO()
+    doc = SimpleDocTemplate(buf, pagesize=A4, leftMargin=18 * mm, rightMargin=18 * mm, topMargin=18 * mm)
+    styles = getSampleStyleSheet()
+    body = styles["BodyText"]
+    body.fontName = font_name
+    styles["Heading2"].fontName = font_bold_name
+    story = [
+        Paragraph(f"<b>Purchase Order no:</b> {row.get('PO_DRAFT_NO', '-')}", body),
+        Paragraph(f"Date of issue: {datetime.now().strftime('%Y-%m-%d')}", body),
+        Spacer(1, 28 * mm),
+        Paragraph(f"<b>Supplier:</b> {row.get('VENDOR_NAME', '-')} &nbsp;&nbsp;&nbsp; <b>Buyer:</b> BuyBee Procurement", body),
+        Spacer(1, 10 * mm),
+        Paragraph("<b>ITEMS</b>", styles["Heading2"]),
+    ]
+    item_data = [
+        ["No.", "Description", "Qty", "UM", "Net price", "Net worth", "VAT [%]", "Gross worth"],
+        [
+            "1.",
+            Paragraph(f"{event.get('material_name', '-')}<br/>Material ID: {row.get('MATERIAL_ID', '-')}<br/>Candidate ID: {row.get('CANDIDATE_ID', '-')}", body),
+            str(qty),
+            "each",
+            _po_money(unit_price),
+            _po_money(net),
+            "10%",
+            _po_money(gross),
+        ],
+    ]
+    item_table = Table(item_data, colWidths=[10*mm, 58*mm, 12*mm, 13*mm, 22*mm, 24*mm, 16*mm, 25*mm])
+    item_table.setStyle(TableStyle([
+        ("GRID", (0, 0), (-1, -1), 0.5, colors.lightgrey),
+        ("BACKGROUND", (0, 0), (-1, 0), colors.whitesmoke),
+        ("BACKGROUND", (0, 1), (-1, 1), colors.HexColor("#E6E6E6")),
+        ("FONTNAME", (0, 0), (-1, -1), font_name),
+        ("FONTNAME", (0, 0), (-1, 0), font_bold_name),
+        ("FONTSIZE", (0, 0), (-1, -1), 7),
+        ("VALIGN", (0, 0), (-1, -1), "TOP"),
+    ]))
+    story.extend([item_table, Spacer(1, 10 * mm), Paragraph("<b>SUMMARY</b>", styles["Heading2"])])
+    summary = Table([
+        ["VAT [%]", "Net worth", "VAT", "Gross worth"],
+        ["10%", _po_money(net), _po_money(vat), _po_money(gross)],
+        ["Total", _po_money(net), _po_money(vat), _po_money(gross)],
+    ], colWidths=[42*mm, 42*mm, 42*mm, 42*mm])
+    summary.setStyle(TableStyle([
+        ("GRID", (0, 0), (-1, -1), 0.5, colors.lightgrey),
+        ("BACKGROUND", (0, 0), (-1, 0), colors.whitesmoke),
+        ("BACKGROUND", (0, 1), (-1, 1), colors.HexColor("#E6E6E6")),
+        ("FONTNAME", (0, 0), (-1, -1), font_name),
+        ("FONTNAME", (0, 0), (-1, 0), font_bold_name),
+        ("FONTNAME", (0, 2), (-1, 2), font_bold_name),
+        ("ALIGN", (0, 0), (-1, -1), "RIGHT"),
+    ]))
+    story.append(summary)
+    doc.build(story)
+    return buf.getvalue()
+
+
 def render_po(event: dict) -> None:
     if not PO_FILE.exists():
         return
@@ -1223,12 +1489,31 @@ def render_po(event: dict) -> None:
         cols[3].metric("총액", f"{int(total):,}원" if pd.notna(total) else "—")
 
         filename = f"BuyBee_PO_{row.get('MATERIAL_ID', 'report')}_{datetime.now().strftime('%Y%m%d')}.xlsx"
+        docx_filename = f"BuyBee_PO_{row.get('MATERIAL_ID', 'report')}_{datetime.now().strftime('%Y%m%d')}.docx"
+        pdf_filename = f"BuyBee_PO_{row.get('MATERIAL_ID', 'report')}_{datetime.now().strftime('%Y%m%d')}.pdf"
         excel_bytes = build_excel_report(event)
-        st.download_button(
+        word_bytes = build_po_word_document(event, row)
+        pdf_bytes = build_po_pdf_document(event, row)
+        c_excel, c_word, c_pdf = st.columns(3)
+        c_excel.download_button(
             label="Excel 보고서 다운로드",
             data=excel_bytes,
             file_name=filename,
             mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            use_container_width=True,
+        )
+        c_word.download_button(
+            label="PO Word 문서 다운로드",
+            data=word_bytes,
+            file_name=docx_filename,
+            mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+            use_container_width=True,
+        )
+        c_pdf.download_button(
+            label="PO PDF 문서 다운로드",
+            data=pdf_bytes,
+            file_name=pdf_filename,
+            mime="application/pdf",
             use_container_width=True,
         )
 
@@ -1239,12 +1524,12 @@ def render_assistant(event: dict) -> None:
     approval_ready = st.session_state.approval_ready
     if approval_ready:
         st.markdown(
-            '<div class="approval-box approval-ready">승인 대기 중 — 승인 또는 반려를 입력하세요</div>',
+            '<div class="approval-box approval-ready">후보를 선택하고 발주 문서를 생성할 수 있습니다</div>',
             unsafe_allow_html=True,
         )
     else:
         st.markdown(
-            '<div class="approval-box approval-locked">승인 게이트 잠김 — 후보 평가를 먼저 완료하세요</div>',
+            '<div class="approval-box approval-locked">대체 후보 검색을 먼저 실행하세요</div>',
             unsafe_allow_html=True,
         )
 
@@ -1269,7 +1554,6 @@ def render_assistant(event: dict) -> None:
         st.session_state.messages.append({"role": "assistant", "content": response})
         st.rerun()
 
-    st.caption("Phase 4 승인 게이트를 거쳐 PO 초안을 생성합니다.")
 
 
 # ── Main ───────────────────────────────────────────────────────────────────────
@@ -1302,9 +1586,10 @@ def main() -> None:
     left, right = st.columns([7, 3.2], gap="large")
     with left:
         render_inventory(inventory, shortages)
-        st.divider()
-        render_pipeline_results(event)
-        if PO_FILE.exists():
+        if st.session_state.get("candidate_results") or st.session_state.get("last_error"):
+            st.divider()
+            render_pipeline_results(event)
+        if st.session_state.get("po_created") and PO_FILE.exists():
             st.divider()
             render_po(event)
     with right:
