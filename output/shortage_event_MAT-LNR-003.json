@@ -1,5 +1,5 @@
 {
-  "event_id": "SE-20260513-9805F9",
+  "event_id": "SE-20260517-D91B13",
   "status": "SHORTAGE_DETECTED",
   "material_id": "MAT-LNR-003",
   "material_name": "Linear Block HSR20",
@@ -19,9 +19,17 @@
     "material": "Stainless"
   },
   "search_keywords": [
+    "63.0mm",
     "HSR20CA",
+    "Linear Block",
     "Linear Block  THK",
-    "Runner Block  THK"
+    "Linear Block HSR20",
+    "Linear Guide",
+    "Runner Block",
+    "Runner Block  THK",
+    "Slider",
+    "리니어 가이드",
+    "슬라이딩 블록"
   ],
-  "detected_at": "2026-05-13T00:50:41.589532"
+  "detected_at": "2026-05-17T19:27:56.128523"
 }
