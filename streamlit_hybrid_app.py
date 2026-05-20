@@ -25,7 +25,12 @@ ENV_FILE = BASE_DIR / ".env"
 BUDGET_LIMIT_KRW = 5_000_000
 
 
-st.set_page_config(page_title="BuyBee", layout="wide", page_icon="🐝")
+st.set_page_config(
+    page_title="BuyBee",
+    layout="wide",
+    page_icon="🐝",
+    initial_sidebar_state="expanded",
+)
 
 
 PROFESSIONAL_CSS = """
@@ -59,7 +64,7 @@ PROFESSIONAL_CSS = """
 /* ── Streamlit chrome 제거 ──────────────────────────────────── */
 #MainMenu { visibility: hidden; }
 footer    { visibility: hidden; }
-header    { visibility: hidden; }
+header    { visibility: hidden; height: 0; }
 
 /* ── Base ───────────────────────────────────────────────────── */
 .stApp {
@@ -358,19 +363,19 @@ hr { border-color: var(--border) !important; margin: 1.25rem 0 !important; }
     font-weight: 800;
     letter-spacing: -0.03em;
     padding: 0.25rem 0 1.25rem;
-    border-bottom: 1px solid rgba(255,255,255,0.1);
+    border-bottom: 1px solid var(--border);
     margin-bottom: 1.25rem;
-    color: #F1F5F9 !important;
+    color: var(--navy) !important;
 }
 .sidebar-logo span { color: var(--accent) !important; }
-.sidebar-divider { border-top: 1px solid rgba(255,255,255,0.08); margin: 1rem 0; }
+.sidebar-divider { border-top: 1px solid var(--border); margin: 1rem 0; }
 .sidebar-section-label {
     font-family: 'DM Mono', monospace !important;
     font-size: 0.58rem !important;
     font-weight: 500 !important;
     text-transform: uppercase !important;
     letter-spacing: 0.14em !important;
-    color: rgba(255,255,255,0.28) !important;
+    color: var(--text-muted) !important;
     margin-bottom: 0.4rem;
     display: block;
 }
@@ -861,7 +866,7 @@ def render_sidebar(shortages: pd.DataFrame, selected_default: str | None) -> str
     has_serpapi = bool(os.environ.get("SERPAPI_API_KEY"))
     has_openai = bool(os.environ.get("OPENAI_API_KEY"))
 
-    with st.sidebar:
+    with st.container(border=True):
         st.markdown('<div class="sidebar-logo">Buy<span>Bee</span> 🐝</div>', unsafe_allow_html=True)
 
         st.markdown('<span class="sidebar-section-label">부족 자재 선택</span>', unsafe_allow_html=True)
@@ -877,21 +882,21 @@ def render_sidebar(shortages: pd.DataFrame, selected_default: str | None) -> str
         risk_color = "#DC2626" if risk_pct < 30 else "#D97706" if risk_pct < 70 else "#059669"
         st.markdown(
             f"""
-            <div style="background:rgba(255,255,255,0.06);border:1px solid rgba(255,255,255,0.1);
+            <div style="background:rgba(30,58,95,0.035);border:1px solid #E4E8F0;
                         border-left:3px solid {risk_color};border-radius:6px;
                         padding:0.75rem 1rem;margin:0.5rem 0 1rem;
                         font-family:'DM Mono',monospace;font-size:0.75rem;">
-                <div style="color:rgba(255,255,255,0.3);font-size:0.58rem;font-weight:500;
+                <div style="color:#6B7280;font-size:0.58rem;font-weight:500;
                             text-transform:uppercase;letter-spacing:0.14em;margin-bottom:8px;">재고 현황</div>
-                <div style="display:flex;justify-content:space-between;margin-bottom:5px;color:rgba(255,255,255,0.45);">
+                <div style="display:flex;justify-content:space-between;margin-bottom:5px;color:#6B7280;">
                     <span>현재 재고</span>
-                    <span style="color:rgba(255,255,255,0.85);font-weight:500;">{int(shortage_row['current_stock'])}개</span>
+                    <span style="color:#111827;font-weight:500;">{int(shortage_row['current_stock'])}개</span>
                 </div>
-                <div style="display:flex;justify-content:space-between;margin-bottom:10px;color:rgba(255,255,255,0.45);">
-                    <span>최소 보유 수량</span>
-                    <span style="color:rgba(255,255,255,0.85);font-weight:500;">{int(shortage_row['safety_stock'])}개</span>
+                <div style="display:flex;justify-content:space-between;margin-bottom:10px;color:#6B7280;">
+                    <span>안전 재고</span>
+                    <span style="color:#111827;font-weight:500;">{int(shortage_row['safety_stock'])}개</span>
                 </div>
-                <div style="background:rgba(255,255,255,0.1);border-radius:2px;height:3px;overflow:hidden;">
+                <div style="background:#E4E8F0;border-radius:2px;height:3px;overflow:hidden;">
                     <div style="background:{risk_color};width:{min(risk_pct,100)}%;height:100%;"></div>
                 </div>
                 <div style="color:{risk_color};font-size:0.62rem;margin-top:5px;text-align:right;letter-spacing:0.06em;">
@@ -909,7 +914,7 @@ def render_sidebar(shortages: pd.DataFrame, selected_default: str | None) -> str
         o_color = "#34D399" if has_openai else "#F87171"
         st.markdown(
             f"""
-            <div style="font-family:'DM Mono',monospace;font-size:0.73rem;line-height:2.2;color:rgba(255,255,255,0.45);">
+            <div style="font-family:'DM Mono',monospace;font-size:0.73rem;line-height:2.2;color:#6B7280;">
                 <span style="color:{s_color};">●</span>&nbsp; SerpAPI &nbsp;
                 <span style="color:{s_color};font-size:0.62rem;">{"CONNECTED" if has_serpapi else "OFFLINE"}</span><br>
                 <span style="color:{o_color};">●</span>&nbsp; OpenAI &nbsp;&nbsp;
@@ -1573,27 +1578,32 @@ def main() -> None:
         return
 
     selected_default = default_selected_material(shortages)
-    selected_material = render_sidebar(shortages, selected_default)
+
+    nav, workspace = st.columns([1.25, 5], gap="large")
+    with nav:
+        selected_material = render_sidebar(shortages, selected_default)
+
     st.session_state.selected_material_id = selected_material
     clear_pipeline_state_for_material_change(selected_material)
 
     events = shortage_events_by_material()
     event = events[selected_material]
 
-    render_step_tracker(st.session_state.step, st.session_state.approval_ready)
-    render_top_metrics(event)
+    with workspace:
+        render_step_tracker(st.session_state.step, st.session_state.approval_ready)
+        render_top_metrics(event)
 
-    left, right = st.columns([7, 3.2], gap="large")
-    with left:
-        render_inventory(inventory, shortages)
-        if st.session_state.get("candidate_results") or st.session_state.get("last_error"):
-            st.divider()
-            render_pipeline_results(event)
-        if st.session_state.get("po_created") and PO_FILE.exists():
-            st.divider()
-            render_po(event)
-    with right:
-        render_assistant(event)
+        left, right = st.columns([7, 3.2], gap="large")
+        with left:
+            render_inventory(inventory, shortages)
+            if st.session_state.get("candidate_results") or st.session_state.get("last_error"):
+                st.divider()
+                render_pipeline_results(event)
+            if st.session_state.get("po_created") and PO_FILE.exists():
+                st.divider()
+                render_po(event)
+        with right:
+            render_assistant(event)
 
 
 if __name__ == "__main__":
