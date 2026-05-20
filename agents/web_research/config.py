@@ -20,10 +20,14 @@ RUNTIME_SEARCH_MODES = {"live", "mixed"}
 VALID_QUERY_MODES = {"deterministic", "llm"}
 VALID_EXTRACTION_MODES = {"none", "llm"}
 VALID_SEARCH_PROVIDERS = {"llm_plan", "serpapi"}
-DEFAULT_OPENAI_MODEL = "gpt-4o-mini"
-DEFAULT_OLLAMA_MODEL = "gemma4"
-DEFAULT_LLM_MODEL = DEFAULT_OPENAI_MODEL  # overridden at runtime by _get_llm_config
-DEFAULT_LLM_API_BASE = os.environ.get("OLLAMA_BASE_URL", "http://localhost:11434/v1")
+DEFAULT_OPENAI_MODEL = os.environ.get("OPENAI_MODEL", "gpt-4o-mini")
+DEFAULT_OLLAMA_MODEL = os.environ.get("OLLAMA_MODEL", "gemma4")
+DEFAULT_LLM_MODEL = os.environ.get("LLM_MODEL") or DEFAULT_OPENAI_MODEL
+DEFAULT_LLM_API_BASE = (
+    os.environ.get("LLM_API_BASE")
+    or os.environ.get("OLLAMA_BASE_URL")
+    or "http://localhost:11434/v1"
+).rstrip("/")
 DEFAULT_SEARCH_PROVIDER_ENV = "PHASE2_SEARCH_PROVIDER"
 DEFAULT_PAGE_TEXT_LIMIT = 12000
 DEFAULT_MAX_RESULTS_PER_QUERY = 3

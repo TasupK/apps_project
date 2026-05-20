@@ -359,8 +359,69 @@ def _parse_moq_from_text(text: str) -> int | None:
 def _vendor_name_from_search_result(result: dict) -> str:
     title = str(result.get("title") or "").strip()
     if " - " in title:
-        return title.rsplit(" - ", 1)[-1].strip() or "Unknown Vendor"
-    return title or "Unknown Vendor"
+        suffix = title.rsplit(" - ", 1)[-1].strip()
+        if suffix and not _looks_like_product_title(suffix):
+            return suffix
+    return _vendor_name_from_url(result.get("url")) or title or "Unknown Vendor"
+
+
+def _vendor_name_from_url(url: object) -> str | None:
+    parsed = urllib.parse.urlsplit(str(url or "").strip())
+    host = parsed.netloc.lower().split("@")[-1].split(":")[0]
+    if not host:
+        return None
+    host = host.removeprefix("www.")
+    known_hosts = {
+        "kr.misumi-ec.com": "MISUMI Korea",
+        "misumi-ec.com": "MISUMI",
+        "smartstore.naver.com": "Naver SmartStore",
+        "shopping.naver.com": "Naver Shopping",
+        "coupang.com": "Coupang",
+        "gmarket.co.kr": "Gmarket",
+        "auction.co.kr": "Auction",
+        "11st.co.kr": "11st",
+        "amazon.com": "Amazon",
+        "ebay.com": "eBay",
+        "aliexpress.com": "AliExpress",
+        "mcmaster.com": "McMaster-Carr",
+        "grainger.com": "Grainger",
+        "digikey.com": "Digi-Key",
+        "mouser.com": "Mouser",
+        "rs-online.com": "RS",
+        "kr.rs-online.com": "RS Korea",
+    }
+    if host in known_hosts:
+        return known_hosts[host]
+    parts = host.split(".")
+    if len(parts) >= 3 and parts[-2] in {"co", "com", "or", "ac", "go"}:
+        label = parts[-3]
+    elif len(parts) >= 2:
+        label = parts[-2]
+    else:
+        label = parts[0]
+    return label.replace("-", " ").title() if label else None
+
+
+def _looks_like_product_title(value: str) -> bool:
+    text = value.lower()
+    product_terms = {
+        "bearing",
+        "bearings",
+        "ball",
+        "angular",
+        "contact",
+        "linear",
+        "guide",
+        "screw",
+        "shaft",
+        "sensor",
+        "motor",
+        "부품",
+        "베어링",
+    }
+    has_digit = any(char.isdigit() for char in text)
+    has_product_term = any(term in text for term in product_terms)
+    return has_digit or has_product_term
 
 def _empty_to_none(value: object) -> str | None:
     text = str(value or "").strip()

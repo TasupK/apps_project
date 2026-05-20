@@ -9,12 +9,21 @@ from .config import *
 from .http_client import urlopen
 
 def _get_llm_config(api_key: str | None = None) -> tuple[str, str, str]:
-    """Return (base_url, token, model) — prefers OpenAI if a key is found, else Ollama."""
-    token = api_key or os.environ.get("OPENAI_API_KEY") or os.environ.get("GPT_API_KEY")
+    """Return (base_url, token, model), supporting OpenAI-compatible Gemma endpoints."""
+    token = (
+        api_key
+        or os.environ.get("LLM_API_KEY")
+        or os.environ.get("OPENAI_API_KEY")
+        or os.environ.get("GPT_API_KEY")
+    )
+    explicit_base = os.environ.get("LLM_API_BASE")
+    explicit_model = os.environ.get("LLM_MODEL")
+    if explicit_base:
+        return explicit_base.rstrip("/"), token or "ollama", explicit_model or DEFAULT_LLM_MODEL
     if token:
-        return "https://api.openai.com/v1", token, DEFAULT_OPENAI_MODEL
+        return "https://api.openai.com/v1", token, explicit_model or DEFAULT_OPENAI_MODEL
     base = os.environ.get("OLLAMA_BASE_URL", DEFAULT_LLM_API_BASE).rstrip("/")
-    return base, "ollama", DEFAULT_OLLAMA_MODEL
+    return base, "ollama", explicit_model or DEFAULT_OLLAMA_MODEL
 
 
 def build_search_query(shortage_event: dict) -> str:

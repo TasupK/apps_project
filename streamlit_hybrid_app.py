@@ -550,15 +550,21 @@ def run_actual_pipeline(event: dict) -> tuple[dict, dict]:
     candidate_path = candidate_output_path(event["material_id"])
 
     has_serpapi = bool(os.environ.get("SERPAPI_API_KEY"))
-    has_openai = bool(os.environ.get("OPENAI_API_KEY") or os.environ.get("GPT_API_KEY"))
+    has_llm = bool(
+        os.environ.get("LLM_API_BASE")
+        or os.environ.get("OLLAMA_BASE_URL")
+        or os.environ.get("LLM_API_KEY")
+        or os.environ.get("OPENAI_API_KEY")
+        or os.environ.get("GPT_API_KEY")
+    )
     provider = "serpapi" if has_serpapi else "llm_plan"
 
     candidate_results = run_web_research(
         input_path=event_path,
         output_path=candidate_path,
         search_mode="live",
-        query_mode="llm" if has_openai else "deterministic",
-        extraction_mode="llm" if has_openai else "none",
+        query_mode="llm" if has_llm else "deterministic",
+        extraction_mode="llm" if has_llm else "none",
         search_provider=provider,
         max_results_per_query=3,
         max_candidates=6,
@@ -585,7 +591,7 @@ def build_candidate_table(candidate_results: dict | None, evaluation_report: dic
                     "decision": decision.get("decision"),
                     "risk_level": decision.get("risk_level"),
                     "price_krw": candidate.get("price_krw"),
-                    "lead_time_days": _display_bool_when_missing(candidate.get("lead_time_days")),
+                    "lead_time_days": _format_lead_time(candidate.get("lead_time_days")),
                     "source_type": candidate.get("source_type"),
                     "compatibility_score": scores.get("compatibility_score"),
                     "vendor_trust_score": scores.get("vendor_trust_score"),
@@ -607,7 +613,7 @@ def build_candidate_table(candidate_results: dict | None, evaluation_report: dic
                 "decision": "not_evaluated",
                 "risk_level": "Review",
                 "price_krw": candidate.get("price_krw"),
-                "lead_time_days": _display_bool_when_missing(candidate.get("lead_time_days")),
+                "lead_time_days": _format_lead_time(candidate.get("lead_time_days")),
                 "source_type": candidate.get("source_type"),
                 "compatibility_score": None,
                 "vendor_trust_score": None,
@@ -620,8 +626,16 @@ def build_candidate_table(candidate_results: dict | None, evaluation_report: dic
     return pd.DataFrame(rows)
 
 
-def _display_bool_when_missing(value):
-    return False if value is None else value
+def _format_lead_time(value) -> str:
+    if value is None or value == "" or value is False:
+        return "직접 확인 필요"
+    try:
+        days = int(float(value))
+    except (TypeError, ValueError):
+        return str(value)
+    if days == 0:
+        return "당일출고"
+    return f"{days}일"
 
 
 def get_top_evaluation_item(evaluation_report: dict | None) -> dict | None:
@@ -884,7 +898,25 @@ def render_step_tracker(step: str, approval_ready: bool) -> None:
 
 def render_sidebar(shortages: pd.DataFrame, selected_default: str | None) -> str:
     has_serpapi = bool(os.environ.get("SERPAPI_API_KEY"))
-    has_openai = bool(os.environ.get("OPENAI_API_KEY") or os.environ.get("GPT_API_KEY"))
+    has_llm = bool(
+        os.environ.get("LLM_API_BASE")
+        or os.environ.get("OLLAMA_BASE_URL")
+        or os.environ.get("LLM_API_KEY")
+        or os.environ.get("OPENAI_API_KEY")
+        or os.environ.get("GPT_API_KEY")
+    )
+    llm_model = os.environ.get("LLM_MODEL") or os.environ.get("OPENAI_MODEL") or "gpt-4o-mini"
+    llm_base = os.environ.get("LLM_API_BASE") or os.environ.get("OLLAMA_BASE_URL") or "https://api.openai.com/v1"
+    llm_name = "OpenAI"
+    model_lower = llm_model.lower()
+    base_lower = llm_base.lower()
+    if "gemma" in model_lower:
+        llm_name = "Gemma"
+    elif "llama" in model_lower:
+        llm_name = "Llama"
+    elif "local" in base_lower or "localhost" in base_lower or "trycloudflare.com" in base_lower:
+        llm_name = "Local LLM"
+    llm_label = f"{llm_name} ({llm_model})"
 
     with st.container(border=True):
         st.markdown('<div class="sidebar-logo">Buy<span>Bee</span> 🐝</div>', unsafe_allow_html=True)
@@ -909,11 +941,11 @@ def render_sidebar(shortages: pd.DataFrame, selected_default: str | None) -> str
                 <div style="color:#6B7280;font-size:0.58rem;font-weight:500;
                             text-transform:uppercase;letter-spacing:0.14em;margin-bottom:8px;">재고 현황</div>
                 <div style="display:flex;justify-content:space-between;margin-bottom:5px;color:#6B7280;">
-                    <span>현재 재고</span>
+                    <span>현재 수량</span>
                     <span style="color:#111827;font-weight:500;">{int(shortage_row['current_stock'])}개</span>
                 </div>
                 <div style="display:flex;justify-content:space-between;margin-bottom:10px;color:#6B7280;">
-                    <span>안전 재고</span>
+                    <span>최소 보유 수량</span>
                     <span style="color:#111827;font-weight:500;">{int(shortage_row['safety_stock'])}개</span>
                 </div>
                 <div style="background:#E4E8F0;border-radius:2px;height:3px;overflow:hidden;">
@@ -931,14 +963,14 @@ def render_sidebar(shortages: pd.DataFrame, selected_default: str | None) -> str
         st.markdown('<span class="sidebar-section-label">API 연동 상태</span>', unsafe_allow_html=True)
 
         s_color = "#34D399" if has_serpapi else "#F87171"
-        o_color = "#34D399" if has_openai else "#F87171"
+        o_color = "#34D399" if has_llm else "#F87171"
         st.markdown(
             f"""
             <div style="font-family:'DM Mono',monospace;font-size:0.73rem;line-height:2.2;color:#6B7280;">
                 <span style="color:{s_color};">●</span>&nbsp; SerpAPI &nbsp;
                 <span style="color:{s_color};font-size:0.62rem;">{"CONNECTED" if has_serpapi else "OFFLINE"}</span><br>
-                <span style="color:{o_color};">●</span>&nbsp; OpenAI &nbsp;&nbsp;
-                <span style="color:{o_color};font-size:0.62rem;">{"CONNECTED" if has_openai else "OFFLINE"}</span>
+                <span style="color:{o_color};">●</span>&nbsp; {llm_label} &nbsp;&nbsp;
+                <span style="color:{o_color};font-size:0.62rem;">{"CONNECTED" if has_llm else "OFFLINE"}</span>
             </div>
             """,
             unsafe_allow_html=True,
@@ -984,7 +1016,7 @@ def render_inventory(inventory: pd.DataFrame, shortages: pd.DataFrame) -> None:
     chart = (
         inventory[["material_name", "current_stock", "safety_stock"]]
         .rename(columns={
-            "current_stock": "현재 재고",
+            "current_stock": "현재 수량",
             "safety_stock": "최소 보유 수량",
         })
         .set_index("material_name")
@@ -1002,7 +1034,7 @@ def render_inventory(inventory: pd.DataFrame, shortages: pd.DataFrame) -> None:
             "category": "카테고리",
             "brand": "브랜드",
             "mpn": "MPN",
-            "current_stock": "현재 재고",
+            "current_stock": "현재 수량",
             "safety_stock": "최소 보유 수량",
             "shortage_qty": "부족 수량",
             "plant": "플랜트",
@@ -1067,6 +1099,21 @@ def render_pipeline_results(event: dict) -> None:
             "compatibility_score", "vendor_trust_score", "source_trust_score", "final_score",
             "risk_note", "source_url",
         ]],
+        column_config={
+            "candidate_id": "후보 ID",
+            "vendor_name": "판매 사이트",
+            "decision": "평가",
+            "risk_level": "리스크",
+            "price_krw": st.column_config.NumberColumn("단가", format="₩ %d"),
+            "lead_time_days": "리드타임",
+            "source_type": "출처",
+            "compatibility_score": "호환성",
+            "vendor_trust_score": "공급사",
+            "source_trust_score": "출처 신뢰도",
+            "final_score": "최종점수",
+            "risk_note": "메모",
+            "source_url": st.column_config.LinkColumn("출처 URL"),
+        },
         use_container_width=True,
         hide_index=True,
     )
@@ -1269,9 +1316,9 @@ def build_excel_report(event: dict) -> bytes:
     if not table.empty:
         ws2.append([])
         col_labels = {
-            "candidate_id": "후보 ID", "vendor_name": "공급업체",
+            "candidate_id": "후보 ID", "vendor_name": "판매 사이트",
             "decision": "결정", "risk_level": "리스크",
-            "price_krw": "단가(원)", "lead_time_days": "납기(일)",
+            "price_krw": "단가(원)", "lead_time_days": "리드타임",
             "source_type": "출처 유형",
             "compatibility_score": "호환성", "vendor_trust_score": "공급사 신뢰도",
             "source_trust_score": "출처 신뢰도",
@@ -1343,7 +1390,7 @@ def build_excel_report(event: dict) -> bytes:
         ("카테고리",        event.get("category", "")),
         ("브랜드",          event.get("brand", "")),
         ("MPN",            event.get("mpn", "")),
-        ("현재 재고",       event.get("current_stock", "")),
+        ("현재 수량",       event.get("current_stock", "")),
         ("최소 보유 수량",  event.get("safety_stock", "")),
         ("부족 수량",       event.get("shortage_qty", "")),
         ("기술 스펙",       event.get("technical_specification", "")),
