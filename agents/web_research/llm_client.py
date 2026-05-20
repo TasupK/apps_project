@@ -1,18 +1,21 @@
 from __future__ import annotations
 
-from datetime import datetime
-from html.parser import HTMLParser
-import argparse
 import json
 import os
-from pathlib import Path
-import re
-import sys
 import urllib.error
-import urllib.parse
 import urllib.request
 
 from .config import *
+from .http_client import urlopen
+
+def _get_llm_config(api_key: str | None = None) -> tuple[str, str, str]:
+    """Return (base_url, token, model) — prefers OpenAI if a key is found, else Ollama."""
+    token = api_key or os.environ.get("OPENAI_API_KEY") or os.environ.get("GPT_API_KEY")
+    if token:
+        return "https://api.openai.com/v1", token, DEFAULT_OPENAI_MODEL
+    base = os.environ.get("OLLAMA_BASE_URL", DEFAULT_LLM_API_BASE).rstrip("/")
+    return base, "ollama", DEFAULT_OLLAMA_MODEL
+
 
 def build_search_query(shortage_event: dict) -> str:
     """Build a deterministic MVP query from Phase 1 search keywords."""
@@ -73,30 +76,33 @@ def generate_query_candidates_with_llm(
     model: str = DEFAULT_LLM_MODEL,
     api_key: str | None = None,
 ) -> list[str]:
-    """Ask OpenAI to generate search query candidates for live web research."""
-    token = os.environ.get("OPENAI_API_KEY") if api_key is None else api_key
-    if not token:
-        raise RuntimeError("OPENAI_API_KEY is required for LLM query generation")
+    """Ask the configured LLM to generate search query candidates for live web research."""
+    base_url, token, model = _get_llm_config(api_key)
 
     request_body = {
         "model": model,
-        "instructions": QUERY_GENERATION_PROMPT,
-        "max_tokens": 300,  # OpenAI 응답 토큰 제한
-        "input": json.dumps(
+        "messages": [
+            {"role": "system", "content": QUERY_GENERATION_PROMPT},
             {
-                "material_id": shortage_event["material_id"],
-                "material_name": shortage_event["material_name"],
-                "category": shortage_event["category"],
-                "technical_specification": shortage_event["technical_specification"],
-                "search_keywords": shortage_event["search_keywords"],
+                "role": "user",
+                "content": json.dumps(
+                    {
+                        "material_id": shortage_event["material_id"],
+                        "material_name": shortage_event["material_name"],
+                        "category": shortage_event["category"],
+                        "technical_specification": shortage_event["technical_specification"],
+                        "search_keywords": shortage_event["search_keywords"],
+                    },
+                    ensure_ascii=False,
+                ),
             },
-            ensure_ascii=False,
-        ),
-        "text": {"format": QUERY_RESPONSE_SCHEMA},
+        ],
+        "max_tokens": 300,
+        "response_format": {"type": "json_object"},
     }
     payload = json.dumps(request_body).encode("utf-8")
     request = urllib.request.Request(
-        "https://api.openai.com/v1/responses",
+        f"{base_url}/chat/completions",
         data=payload,
         headers={
             "Authorization": f"Bearer {token}",
@@ -106,18 +112,22 @@ def generate_query_candidates_with_llm(
     )
 
     try:
-        with urllib.request.urlopen(request, timeout=30) as response:
+        with urlopen(request, timeout=30) as response:
             response_body = json.loads(response.read().decode("utf-8"))
-    except (OSError, urllib.error.HTTPError, json.JSONDecodeError) as exc:
+    except urllib.error.HTTPError as exc:
+        raise RuntimeError(f"LLM query generation failed: {_format_http_error(exc)}") from exc
+    except (OSError, json.JSONDecodeError) as exc:
         raise RuntimeError(f"LLM query generation failed: {exc}") from exc
 
     return _parse_llm_query_response(response_body)
 
 
 def _parse_llm_query_response(response_body: dict) -> list[str]:
-    text = response_body.get("output_text")
-    if not text:
-        text = _extract_response_text(response_body)
+    choices = response_body.get("choices", [])
+    if choices:
+        text = choices[0].get("message", {}).get("content")
+    else:
+        text = response_body.get("output_text") or _extract_response_text(response_body)
     if not text:
         raise RuntimeError("LLM query generation returned no text")
 
@@ -159,10 +169,8 @@ def extract_candidate_details_with_llm(
     model: str = DEFAULT_LLM_MODEL,
     api_key: str | None = None,
 ) -> dict:
-    """Ask OpenAI to extract contract fields from one product/source page using Multimodal (Text + Vision)."""
-    token = os.environ.get("OPENAI_API_KEY") if api_key is None else api_key
-    if not token:
-        raise RuntimeError("OPENAI_API_KEY is required for LLM detail extraction")
+    """Ask the configured LLM to extract contract fields from one product/source page."""
+    base_url, token, model = _get_llm_config(api_key)
 
     content = [
         {
@@ -197,7 +205,7 @@ def extract_candidate_details_with_llm(
     }
     payload = json.dumps(request_body).encode("utf-8")
     request = urllib.request.Request(
-        "https://api.openai.com/v1/chat/completions",
+        f"{base_url}/chat/completions",
         data=payload,
         headers={
             "Authorization": f"Bearer {token}",
@@ -207,12 +215,28 @@ def extract_candidate_details_with_llm(
     )
 
     try:
-        with urllib.request.urlopen(request, timeout=30) as response:
+        with urlopen(request, timeout=30) as response:
             response_body = json.loads(response.read().decode("utf-8"))
-    except (OSError, urllib.error.HTTPError, json.JSONDecodeError) as exc:
+    except urllib.error.HTTPError as exc:
+        raise RuntimeError(f"LLM detail extraction failed: {_format_http_error(exc)}") from exc
+    except (OSError, json.JSONDecodeError) as exc:
         raise RuntimeError(f"LLM detail extraction failed: {exc}") from exc
 
     return _parse_candidate_detail_response(response_body)
+
+
+def _format_http_error(exc: urllib.error.HTTPError) -> str:
+    try:
+        body = exc.read().decode("utf-8", errors="replace")
+        payload = json.loads(body)
+        error = payload.get("error", {})
+        message = error.get("message") or body
+        code = error.get("code")
+        if code:
+            return f"HTTP {exc.code} {code}: {message}"
+        return f"HTTP {exc.code}: {message}"
+    except Exception:
+        return f"HTTP {exc.code}: {exc.reason}"
 
 
 def _parse_candidate_detail_response(response_body: dict) -> dict:

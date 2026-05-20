@@ -1,5 +1,5 @@
 {
-  "event_id": "SE-20260517-A43E75",
+  "event_id": "SE-20260520-0099DF",
   "status": "SHORTAGE_DETECTED",
   "material_id": "MAT-BRG-002",
   "material_name": "Angular Contact Bearing 7005-CTY",
@@ -32,5 +32,5 @@
     "Roller Bearing 25.0x47.0x12.0 FAG",
     "회전 베어링"
   ],
-  "detected_at": "2026-05-17T19:31:54.612892"
+  "detected_at": "2026-05-20T12:41:03.060135"
 }

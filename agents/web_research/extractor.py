@@ -1,20 +1,37 @@
 from __future__ import annotations
 
-from datetime import datetime
-from html.parser import HTMLParser
-import argparse
-import json
-import os
-from pathlib import Path
 import re
-import sys
-import urllib.error
+import time
 import urllib.parse
-import urllib.request
 
 from .config import *
 from .llm_client import extract_candidate_details_with_llm
-from .scraper import fetch_page_text, _search_result_text, _get_json, capture_page_screenshot
+from .scraper import fetch_page_text, _get_json, capture_page_screenshot
+
+# exchange rate cache: currency -> (rate, fetched_at_epoch)
+_RATE_CACHE: dict[str, tuple[float, float]] = {}
+_RATE_CACHE_TTL = 3600
+
+# patterns ordered most-specific first
+_LEAD_TIME_PATTERNS: list[tuple[re.Pattern, str]] = [
+    (re.compile(r'당일\s*(?:출고|발송)|in\s+stock\b', re.IGNORECASE), "0"),
+    (re.compile(r'within\s+24\s+(?:business\s+)?hours?', re.IGNORECASE), "1"),
+    (re.compile(r'ships?\s+within\s+(\d+)\s*(?:business\s+)?day', re.IGNORECASE), "1"),
+    (re.compile(r'ships?\s+in\s+(\d+)\s*(?:business\s+)?day', re.IGNORECASE), "1"),
+    (re.compile(r'(\d+)\s*(?:business\s+)?day[s]?\s+ship', re.IGNORECASE), "1"),
+    (re.compile(r'days?\s+to\s+ship\s*[:：]?\s*(\d+)', re.IGNORECASE), "1"),
+    (re.compile(r'lead\s*[-\s]?time[:\s]+(\d+)', re.IGNORECASE), "1"),
+    (re.compile(r'납기[:\s]*(\d+)\s*일', re.IGNORECASE), "1"),
+    (re.compile(r'(\d+)\s*일\s*납기', re.IGNORECASE), "1"),
+    (re.compile(r'(\d+)\s*[-~]\s*(\d+)\s*(?:business\s+)?day', re.IGNORECASE), "range"),
+]
+
+_PRICE_PATTERNS: list[re.Pattern] = [
+    re.compile(r'\b(KRW|USD|EUR|JPY|CNY|GBP|CAD|AUD|TWD|SGD|INR)\s*([0-9][0-9,]*(?:\.[0-9]+)?)\b', re.IGNORECASE),
+    re.compile(r'([₩$€¥£₹])\s*([0-9][0-9,]*(?:\.[0-9]+)?)'),
+    re.compile(r'([0-9][0-9,]*(?:\.[0-9]+)?)\s*([₩$€¥£₹])'),
+    re.compile(r'([0-9][0-9,]*(?:\.[0-9]+)?)\s*원\b'),
+]
 
 def extract_candidate_details(
     candidate: dict,
@@ -42,7 +59,7 @@ def extract_candidate_details(
         return result
     except Exception as e:
         print(f"[DEBUG] LLM extraction failed for {candidate.get('candidate_id')}: {e}")
-        return {}
+        return {"_llm_error": str(e)}
 
 def _normalize_extracted_details(details: dict) -> dict:
     normalized = {
@@ -67,6 +84,12 @@ def _normalize_extracted_details(details: dict) -> dict:
             normalized["price_krw"] = converted
             normalized["price_listed"] = True
             normalized["spec_evidence"] = _append_fx_evidence(normalized["spec_evidence"], normalized)
+
+    if normalized["lead_time_days"] is None and normalized["leadtime_listed"]:
+        parsed = _parse_lead_time_from_text(normalized.get("spec_text") or "")
+        if parsed is not None:
+            normalized["lead_time_days"] = parsed
+
     return normalized
 
 
@@ -75,6 +98,8 @@ def _merge_candidate_details(candidate: dict, details: dict) -> dict:
     for field in ["vendor_name", "location", "source_type", "spec_text", "spec_evidence"]:
         value = details.get(field)
         if value:
+            if field == "source_type" and value == "unknown" and merged.get(field) != "unknown":
+                continue
             merged[field] = value
     for field in ["price_krw", "lead_time_days", "moq"]:
         if details.get(field) is not None:
@@ -102,13 +127,51 @@ def get_exchange_rate_to_krw(currency: str) -> float | None:
         return None
     if normalized == "KRW":
         return 1.0
+    cached = _RATE_CACHE.get(normalized)
+    if cached and (time.time() - cached[1]) < _RATE_CACHE_TTL:
+        return cached[0]
     url = f"https://api.frankfurter.dev/v1/latest?base={urllib.parse.quote(normalized)}&symbols=KRW"
     try:
         payload = _get_json(url)
-    except RuntimeError:
+    except RuntimeError as exc:
+        print(f"[WARN] Exchange rate lookup failed for {normalized}: {exc}")
+        fallback_rate = _get_fallback_exchange_rate_to_krw(normalized)
+        if fallback_rate:
+            _RATE_CACHE[normalized] = (fallback_rate, time.time())
+            return fallback_rate
+        return cached[0] if cached else None  # stale cache beats nothing
+    rate = _to_float_or_none(payload.get("rates", {}).get("KRW"))
+    if rate:
+        _RATE_CACHE[normalized] = (rate, time.time())
+    return rate
+
+
+def _get_fallback_exchange_rate_to_krw(currency: str) -> float | None:
+    url = f"https://open.er-api.com/v6/latest/{urllib.parse.quote(currency)}"
+    try:
+        payload = _get_json(url)
+    except RuntimeError as exc:
+        print(f"[WARN] Fallback exchange rate lookup failed for {currency}: {exc}")
         return None
-    rate = payload.get("rates", {}).get("KRW")
-    return _to_float_or_none(rate)
+    if payload.get("result") != "success":
+        return None
+    return _to_float_or_none(payload.get("rates", {}).get("KRW"))
+
+
+def _parse_lead_time_from_text(text: str) -> int | None:
+    for pattern, mode in _LEAD_TIME_PATTERNS:
+        m = pattern.search(text)
+        if not m:
+            continue
+        if mode == "0":
+            return 0
+        if mode == "range":
+            return min(int(m.group(1)), int(m.group(2)))
+        try:
+            return int(m.group(1))
+        except (IndexError, ValueError):
+            pass
+    return None
 
 
 def _append_fx_evidence(evidence: str | None, details: dict) -> str:
@@ -151,15 +214,28 @@ def _enrich_candidate_from_page(candidate: dict, shortage_event: dict, model: st
         print(f"[DEBUG] Tier 1 fetch failed for {candidate['source_url']}: {e}")
         page_text = ""
         
+    extraction_text = " ".join(
+        part
+        for part in [page_text, str(candidate.get("spec_text") or "")]
+        if part
+    )
+    text_details = extract_candidate_details_from_text(extraction_text)
+
     if not page_text.strip():
         # If we couldn't fetch text, try pure vision approach
         details = {}
     else:
         # Tier 1: Text-only LLM extraction
         details = extract_candidate_details(candidate, page_text, shortage_event, extraction_mode="llm", model=model)
+        details = _merge_extracted_fallback(details, text_details)
         
     # Check if Tier 1 failed to get essential commercial data (price or stock)
-    if details.get("price_krw") is None and details.get("raw_price_text") is None and not details.get("stock_listed"):
+    if (
+        details.get("price_krw") is None
+        and details.get("raw_price_text") is None
+        and not details.get("stock_listed")
+        and not _is_llm_quota_error(details.get("_llm_error"))
+    ):
         print(f"[DEBUG] Tier 2 fallback triggered for {candidate.get('candidate_id')}")
         # Tier 2: Vision LLM extraction fallback
         screenshot_base64 = capture_page_screenshot(candidate["source_url"])
@@ -178,11 +254,106 @@ def _enrich_candidate_from_page(candidate: dict, shortage_event: dict, model: st
                 elif k in ["price_listed", "stock_listed", "leadtime_listed"]:
                     details[k] = bool(details.get(k)) or bool(vision_details.get(k))
                     
+            details = _merge_extracted_fallback(details, text_details)
+
             if any(vision_details.get(f) is not None for f in ["price_krw", "raw_price_text"]):
                 current_ev = details.get("spec_evidence") or ""
                 details["spec_evidence"] = f"{current_ev} (Data extracted via Vision LLM from screenshot)".strip()
 
     return _merge_candidate_details(candidate, details)
+
+
+def extract_candidate_details_from_text(page_text: str) -> dict:
+    """Best-effort deterministic extraction for obvious commercial text."""
+    text = " ".join(str(page_text or "").split())
+    if not text:
+        return {}
+
+    details: dict[str, object] = {
+        "price_listed": False,
+        "stock_listed": bool(re.search(r'\bin\s*stock\b|재고\s*(?:있음|보유)|ready\s+to\s+ship', text, re.IGNORECASE)),
+        "leadtime_listed": bool(re.search(r'ships?\s+in|lead\s*[-\s]?time|납기|delivery\s+date', text, re.IGNORECASE)),
+    }
+
+    price = _parse_price_from_text(text)
+    if price:
+        raw_price_text, listed_price, listed_currency = price
+        details.update(
+            {
+                "raw_price_text": raw_price_text,
+                "listed_price": listed_price,
+                "listed_currency": listed_currency,
+                "price_listed": True,
+                "spec_evidence": f"Page text lists price {raw_price_text}.",
+            }
+        )
+
+    lead_time_days = _parse_lead_time_from_text(text)
+    if lead_time_days is not None:
+        details["lead_time_days"] = lead_time_days
+        details["leadtime_listed"] = True
+
+    moq = _parse_moq_from_text(text)
+    if moq is not None:
+        details["moq"] = moq
+
+    return _normalize_extracted_details(details)
+
+
+def _merge_extracted_fallback(details: dict, fallback: dict) -> dict:
+    merged = dict(details or {})
+    for key, value in (fallback or {}).items():
+        if key in {"price_listed", "stock_listed", "leadtime_listed"}:
+            merged[key] = bool(merged.get(key)) or bool(value)
+        elif value is not None and merged.get(key) in {None, ""}:
+            merged[key] = value
+    return merged
+
+
+def _is_llm_quota_error(error: object) -> bool:
+    text = str(error or "").lower()
+    return "429" in text or "insufficient_quota" in text or "quota" in text
+
+
+def _parse_price_from_text(text: str) -> tuple[str, float, str] | None:
+    for pattern in _PRICE_PATTERNS:
+        match = pattern.search(text)
+        if not match:
+            continue
+        if "원" in pattern.pattern:
+            currency_token, amount_text = "KRW", match.group(1)
+        elif pattern.pattern.startswith("([0-9]"):
+            amount_text, currency_token = match.group(1), match.group(2)
+        else:
+            currency_token, amount_text = match.group(1), match.group(2)
+        currency = _normalize_currency(currency_token)
+        amount = _parse_price_number(amount_text)
+        if currency and amount is not None:
+            return match.group(0), amount, currency
+    return None
+
+
+def _parse_price_number(value: object) -> float | None:
+    text = str(value or "").strip()
+    if not text:
+        return None
+    if "," in text and "." not in text:
+        last_part = text.rsplit(",", 1)[-1]
+        if len(last_part) == 2:
+            text = text.replace(",", ".")
+        else:
+            text = text.replace(",", "")
+    else:
+        text = text.replace(",", "")
+    return _to_float_or_none(text)
+
+
+def _parse_moq_from_text(text: str) -> int | None:
+    match = re.search(r'\bMOQ\s*[:：]?\s*(\d+)\b|minimum\s+order\s+(?:quantity\s*)?[:：]?\s*(\d+)\b', text, re.IGNORECASE)
+    if not match:
+        return None
+    value = next((group for group in match.groups() if group), None)
+    return _to_int_or_none(value)
 
 
 def _vendor_name_from_search_result(result: dict) -> str:
@@ -243,6 +414,7 @@ def _normalize_currency(value: object) -> str | None:
         "€": "EUR",
         "¥": "JPY",
         "£": "GBP",
+        "₹": "INR",
     }
     normalized = aliases.get(text, text)
     return normalized if normalized in SUPPORTED_PRICE_CURRENCIES else None

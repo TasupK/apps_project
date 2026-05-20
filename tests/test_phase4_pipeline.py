@@ -206,3 +206,39 @@ def test_approval_correct_candidate(graph):
     final_state = graph.get_state(config).values
     assert final_state["po_draft"]["vendor_name"] is not None
     assert final_state["po_draft"]["total_price"] > 0
+
+
+def test_approval_rejects_candidate_without_price(graph):
+    """
+    가격이 추출되지 않은 후보는 PO 금액을 계산할 수 없으므로
+    TypeError 없이 PO 생성을 중단해야 한다.
+    """
+    report = {
+        **MOCK_REPORT_APPROVAL_PENDING,
+        "items": [
+            {
+                **MOCK_REPORT_APPROVAL_PENDING["items"][0],
+                "candidate_material": {
+                    **MOCK_REPORT_APPROVAL_PENDING["items"][0]["candidate_material"],
+                    "price_krw": None,
+                },
+            }
+        ],
+    }
+    initial_state = make_initial_state("wf-no-price-001")
+    initial_state["evaluation_report_batch"] = report
+    config = {"configurable": {"thread_id": "6"}}
+
+    for _ in graph.stream(initial_state, config=config):
+        pass
+
+    state = graph.get_state(config).values
+    state["approval"]["approved"] = True
+    graph.update_state(config, state)
+
+    for _ in graph.stream(None, config=config):
+        pass
+
+    final_state = graph.get_state(config).values
+    assert final_state["status"] != "PO_DRAFT_CREATED"
+    assert final_state["po_draft"] is None

@@ -1,16 +1,7 @@
 from __future__ import annotations
 
-from datetime import datetime
-from html.parser import HTMLParser
-import argparse
-import json
 import os
 from pathlib import Path
-import re
-import sys
-import urllib.error
-import urllib.parse
-import urllib.request
 
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 DEFAULT_SAMPLE_INPUT = PROJECT_ROOT / ".planning" / "phase-2" / "shortage_event.sample.json"
@@ -29,12 +20,27 @@ RUNTIME_SEARCH_MODES = {"live", "mixed"}
 VALID_QUERY_MODES = {"deterministic", "llm"}
 VALID_EXTRACTION_MODES = {"none", "llm"}
 VALID_SEARCH_PROVIDERS = {"llm_plan", "serpapi"}
-DEFAULT_LLM_MODEL = "gpt-4o-mini"
+DEFAULT_OPENAI_MODEL = "gpt-4o-mini"
+DEFAULT_OLLAMA_MODEL = "gemma4"
+DEFAULT_LLM_MODEL = DEFAULT_OPENAI_MODEL  # overridden at runtime by _get_llm_config
+DEFAULT_LLM_API_BASE = os.environ.get("OLLAMA_BASE_URL", "http://localhost:11434/v1")
 DEFAULT_SEARCH_PROVIDER_ENV = "PHASE2_SEARCH_PROVIDER"
 DEFAULT_PAGE_TEXT_LIMIT = 12000
 DEFAULT_MAX_RESULTS_PER_QUERY = 3
 DEFAULT_MAX_CANDIDATES = 6
-SUPPORTED_PRICE_CURRENCIES = {"KRW", "USD", "EUR", "JPY", "CNY", "GBP", "CAD", "AUD"}
+SUPPORTED_PRICE_CURRENCIES = {
+    "KRW",
+    "USD",
+    "EUR",
+    "JPY",
+    "CNY",
+    "GBP",
+    "CAD",
+    "AUD",
+    "TWD",
+    "SGD",
+    "INR",
+}
 
 ROOT_REQUIRED_FIELDS = {
     "search_id",

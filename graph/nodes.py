@@ -131,8 +131,13 @@ def report_node(state: AgentState) -> AgentState:
     if selected_item:
         candidate = selected_item.get("candidate_material", {})
         shortage = new_state.get("shortage_event", {})
-        qty = shortage.get("shortage_qty", 0)
-        price = candidate.get("price_krw", 0)
+        qty = shortage.get("shortage_qty", 0) or 0
+        price = candidate.get("price_krw")
+        if price in {None, ""}:
+            new_state["status"] = "REJECTED"
+            return new_state
+        qty = int(qty)
+        price = int(price)
 
         new_state["po_draft"] = {
             "vendor_name": candidate.get("vendor_name"),
