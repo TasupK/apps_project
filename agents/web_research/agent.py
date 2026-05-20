@@ -137,10 +137,15 @@ def _search_result_matches_shortage_material(result: dict, shortage_event: dict)
     )
     strong_terms, weak_terms = _target_match_terms(shortage_event)
 
-    if any(term in haystack for term in strong_terms):
+    strong_hits = sum(1 for term in strong_terms if term in haystack)
+    weak_hits = sum(1 for term in weak_terms if term in haystack)
+
+    if strong_hits >= 2:
         return True
 
-    weak_hits = sum(1 for term in weak_terms if term in haystack)
+    if strong_hits >= 1 and weak_hits >= 1:
+        return True
+
     return weak_hits >= 2
 
 
@@ -149,6 +154,7 @@ def _target_match_terms(shortage_event: dict) -> tuple[list[str], list[str]]:
         shortage_event.get("material_name"),
         shortage_event.get("mpn"),
         shortage_event.get("brand"),
+        shortage_event.get("technical_specification"),
         *(shortage_event.get("search_keywords") or []),
     ]
     strong_terms: list[str] = []

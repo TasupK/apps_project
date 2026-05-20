@@ -30,14 +30,18 @@ def build_deterministic_query_candidates(shortage_event: dict) -> list[str]:
     category = shortage_event["category"]
 
     candidates = [
-        f"{base_query} Korea distributor site:.kr",
-        f"buy {material_name} Korea price stock lead time distributor site:.kr",
-        f"{material_name} in stock price Korean official distributor",
-        f"{material_name} replacement alternative Korea distributor lead time",
-        f"{material_name} official datasheet price stock Korea",
-        f"{material_name} 구매 가격 재고 납기 국내 대리점",
+        f"{base_query}",
+        f"{material_name} {spec_text}",
+        f"{material_name} 국내 대리점 가격 재고 납기",
+        f"{material_name} 구매 가격 재고 납기 당일출고 견적 장바구니",
+        f"{material_name} 산업재몰 상품상세 site:.kr",
+        f"{material_name} official distributor price stock lead time",
+        f"{material_name} official datasheet price stock",
+        f"{material_name} authorized distributor in stock quote buy",
+        f"{material_name} price stock lead time quote buy",
+        f"{material_name} replacement alternative equivalent",
         f"{material_name} 대체품 호환품 가격 재고 납기",
-        f"{category} {material_name} compatible replacement {spec_text} Korea",
+        f"{category} {material_name} compatible replacement {spec_text}",
     ]
     return _dedupe_queries(candidates)
 
