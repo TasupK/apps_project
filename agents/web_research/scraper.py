@@ -79,3 +79,31 @@ def _get_json(url: str, headers: dict[str, str] | None = None) -> dict:
             return json.loads(response.read().decode("utf-8"))
     except (OSError, urllib.error.HTTPError, json.JSONDecodeError) as exc:
         raise RuntimeError(f"web search request failed: {exc}") from exc
+
+
+def capture_page_screenshot(url: str) -> str | None:
+    """Capture a screenshot of the page using Playwright. Returns base64 string."""
+    try:
+        from playwright.sync_api import sync_playwright, TimeoutError as PlaywrightTimeoutError
+    except ImportError:
+        print("Playwright is not installed. Please run: pip install playwright && playwright install")
+        return None
+    
+    try:
+        with sync_playwright() as p:
+            browser = p.chromium.launch(headless=True)
+            # Use a reasonable desktop viewport to capture "Above the fold"
+            page = browser.new_page(viewport={"width": 1280, "height": 1080})
+            try:
+                page.goto(url, wait_until="networkidle", timeout=15000)
+            except PlaywrightTimeoutError:
+                pass  # Try to capture whatever is loaded if timeout occurs
+            
+            # Capture as JPEG to save tokens and bandwidth
+            screenshot_bytes = page.screenshot(type="jpeg", quality=60, full_page=False)
+            import base64
+            browser.close()
+            return base64.b64encode(screenshot_bytes).decode('utf-8')
+    except Exception as e:
+        print(f"Failed to capture screenshot for {url}: {e}")
+        return None

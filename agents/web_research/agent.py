@@ -22,7 +22,6 @@ from .extractor import (
     _merge_candidate_details,
     _normalize_source_type,
     _vendor_name_from_search_result,
-    extract_candidate_details_from_text,
 )
 from .scraper import _search_result_text
 
@@ -103,16 +102,7 @@ def _candidate_stubs_from_verified_search_results(
             "spec_text": _search_result_text(result),
             "spec_evidence": "Verified search result only. Detailed price, stock, lead time, and spec extraction is pending.",
         }
-        snippet_details = extract_candidate_details_from_text(_search_result_text(result))
-        if any(
-            snippet_details.get(field) is not None
-            for field in ["price_krw", "lead_time_days", "moq"]
-        ) or any(
-            snippet_details.get(field)
-            for field in ["price_listed", "stock_listed", "leadtime_listed"]
-        ):
-            snippet_details["spec_evidence"] = "Search result snippet included commercial availability signals."
-            candidate = _merge_candidate_details(candidate, snippet_details)
+
         if extraction_mode == "llm" and shortage_event:
             candidate = _enrich_candidate_from_page(candidate, shortage_event, model=llm_model)
         candidates.append(candidate)
@@ -298,6 +288,8 @@ def main() -> None:
         max_candidates=args.max_candidates,
     )
     if args.print_report:
+        import sys
+        sys.stdout.reconfigure(encoding='utf-8')
         print(json.dumps(report, ensure_ascii=False, indent=2))
     else:
         print(f"Wrote candidate results: {args.output}")

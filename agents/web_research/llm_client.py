@@ -155,20 +155,19 @@ def extract_candidate_details_with_llm(
     candidate: dict,
     page_text: str,
     shortage_event: dict,
+    page_screenshot: str | None = None,
     model: str = DEFAULT_LLM_MODEL,
     api_key: str | None = None,
 ) -> dict:
-    """Ask OpenAI to extract contract fields from one product/source page."""
+    """Ask OpenAI to extract contract fields from one product/source page using Multimodal (Text + Vision)."""
     token = os.environ.get("OPENAI_API_KEY") if api_key is None else api_key
     if not token:
         raise RuntimeError("OPENAI_API_KEY is required for LLM detail extraction")
 
-    request_body = {
-        "model": model,
-        "instructions": DETAIL_EXTRACTION_PROMPT,
-        "max_tokens": 800,  # OpenAI 상세 정보 추출 토큰 제한
-        "input": json.dumps(
-            {
+    content = [
+        {
+            "type": "text",
+            "text": f"Instruction: {DETAIL_EXTRACTION_PROMPT}\n\nInput Data: " + json.dumps({
                 "shortage_event": {
                     "material_id": shortage_event["material_id"],
                     "material_name": shortage_event["material_name"],
@@ -177,14 +176,28 @@ def extract_candidate_details_with_llm(
                 },
                 "candidate": candidate,
                 "page_text": page_text[:DEFAULT_PAGE_TEXT_LIMIT],
-            },
-            ensure_ascii=False,
-        ),
-        "text": {"format": DETAIL_RESPONSE_SCHEMA},
+            }, ensure_ascii=False)
+        }
+    ]
+    
+    if page_screenshot:
+        content.append({
+            "type": "image_url",
+            "image_url": {"url": f"data:image/jpeg;base64,{page_screenshot}"}
+        })
+
+    request_body = {
+        "model": model,
+        "messages": [
+            {"role": "system", "content": "You are a professional industrial procurement assistant."},
+            {"role": "user", "content": content}
+        ],
+        "max_tokens": 1000,
+        "response_format": {"type": "json_object"}
     }
     payload = json.dumps(request_body).encode("utf-8")
     request = urllib.request.Request(
-        "https://api.openai.com/v1/responses",
+        "https://api.openai.com/v1/chat/completions",
         data=payload,
         headers={
             "Authorization": f"Bearer {token}",
@@ -203,11 +216,19 @@ def extract_candidate_details_with_llm(
 
 
 def _parse_candidate_detail_response(response_body: dict) -> dict:
-    text = response_body.get("output_text") or _extract_response_text(response_body)
+    # Chat Completions API response structure
+    choices = response_body.get("choices", [])
+    if not choices:
+        # Fallback to previous custom format if needed
+        text = response_body.get("output_text") or _extract_response_text(response_body)
+    else:
+        text = choices[0].get("message", {}).get("content")
+
     if not text:
         raise RuntimeError("LLM detail extraction returned no text")
     try:
+        from .extractor import _normalize_extracted_details
         parsed = json.loads(text)
-    except json.JSONDecodeError as exc:
-        raise RuntimeError("LLM detail extraction returned invalid JSON") from exc
+    except (json.JSONDecodeError, ImportError) as exc:
+        raise RuntimeError(f"LLM detail extraction failed to parse JSON: {exc}") from exc
     return _normalize_extracted_details(parsed)
