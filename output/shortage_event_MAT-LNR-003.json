@@ -1,5 +1,5 @@
 {
-  "event_id": "SE-20260517-D91B13",
+  "event_id": "SE-20260520-3B5F33",
   "status": "SHORTAGE_DETECTED",
   "material_id": "MAT-LNR-003",
   "material_name": "Linear Block HSR20",
@@ -31,5 +31,5 @@
     "리니어 가이드",
     "슬라이딩 블록"
   ],
-  "detected_at": "2026-05-17T19:27:56.128523"
+  "detected_at": "2026-05-20T12:42:53.389051"
 }

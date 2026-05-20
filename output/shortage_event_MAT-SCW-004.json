@@ -1,5 +1,5 @@
 {
-  "event_id": "SE-20260513-010478",
+  "event_id": "SE-20260520-46502B",
   "status": "SHORTAGE_DETECTED",
   "material_id": "MAT-SCW-004",
   "material_name": "Ball Screw 1505",
@@ -19,9 +19,14 @@
     "material": "Steel"
   },
   "search_keywords": [
+    "Ball Screw",
     "Ball Screw  NSK",
+    "Ball Screw 1505",
+    "Lead Screw",
     "Lead Screw  NSK",
-    "W1502FA"
+    "Precision Screw",
+    "W1502FA",
+    "볼나사"
   ],
-  "detected_at": "2026-05-13T00:50:41.589684"
+  "detected_at": "2026-05-20T12:45:35.253874"
 }

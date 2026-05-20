@@ -513,6 +513,7 @@ def shortage_rows(inventory: pd.DataFrame) -> pd.DataFrame:
     return shortage.sort_values(["risk_ratio", "shortage_qty"], ascending=[True, False])
 
 
+@st.cache_data(ttl=30)
 def shortage_events_by_material() -> dict[str, dict]:
     events = {}
     for event in scan_inventory():
@@ -549,7 +550,7 @@ def run_actual_pipeline(event: dict) -> tuple[dict, dict]:
     candidate_path = candidate_output_path(event["material_id"])
 
     has_serpapi = bool(os.environ.get("SERPAPI_API_KEY"))
-    has_openai = bool(os.environ.get("OPENAI_API_KEY"))
+    has_openai = bool(os.environ.get("OPENAI_API_KEY") or os.environ.get("GPT_API_KEY"))
     provider = "serpapi" if has_serpapi else "llm_plan"
 
     candidate_results = run_web_research(
@@ -557,7 +558,7 @@ def run_actual_pipeline(event: dict) -> tuple[dict, dict]:
         output_path=candidate_path,
         search_mode="live",
         query_mode="llm" if has_openai else "deterministic",
-        extraction_mode="llm" if has_openai and has_serpapi else "page" if has_serpapi else "none",
+        extraction_mode="llm" if has_openai else "none",
         search_provider=provider,
         max_results_per_query=3,
         max_candidates=6,
@@ -584,7 +585,7 @@ def build_candidate_table(candidate_results: dict | None, evaluation_report: dic
                     "decision": decision.get("decision"),
                     "risk_level": decision.get("risk_level"),
                     "price_krw": candidate.get("price_krw"),
-                    "lead_time_days": candidate.get("lead_time_days"),
+                    "lead_time_days": _display_bool_when_missing(candidate.get("lead_time_days")),
                     "source_type": candidate.get("source_type"),
                     "compatibility_score": scores.get("compatibility_score"),
                     "vendor_trust_score": scores.get("vendor_trust_score"),
@@ -606,7 +607,7 @@ def build_candidate_table(candidate_results: dict | None, evaluation_report: dic
                 "decision": "not_evaluated",
                 "risk_level": "Review",
                 "price_krw": candidate.get("price_krw"),
-                "lead_time_days": candidate.get("lead_time_days"),
+                "lead_time_days": _display_bool_when_missing(candidate.get("lead_time_days")),
                 "source_type": candidate.get("source_type"),
                 "compatibility_score": None,
                 "vendor_trust_score": None,
@@ -617,6 +618,10 @@ def build_candidate_table(candidate_results: dict | None, evaluation_report: dic
             }
         )
     return pd.DataFrame(rows)
+
+
+def _display_bool_when_missing(value):
+    return False if value is None else value
 
 
 def get_top_evaluation_item(evaluation_report: dict | None) -> dict | None:
@@ -642,11 +647,23 @@ def get_evaluation_item_by_candidate_id(evaluation_report: dict | None, candidat
     )
 
 
+def _positive_int(value) -> int | None:
+    try:
+        number = int(float(value))
+    except (TypeError, ValueError):
+        return None
+    return number if number > 0 else None
+
+
 def is_candidate_po_selectable(item: dict | None) -> bool:
     if not item:
         return False
     decision = str(item.get("decision_context", {}).get("decision", "")).lower()
-    return decision in {"recommend", "conditional_approve", "review_required"}
+    candidate = item.get("candidate_material", {})
+    return (
+        decision in {"recommend", "conditional_approve", "review_required"}
+        and _positive_int(candidate.get("price_krw")) is not None
+    )
 
 
 def report_with_selected_candidate(evaluation_report: dict, candidate_id: str) -> dict:
@@ -655,6 +672,9 @@ def report_with_selected_candidate(evaluation_report: dict, candidate_id: str) -
         raise RuntimeError(f"Selected candidate not found: {candidate_id}")
     if not is_candidate_po_selectable(item):
         decision = item.get("decision_context", {}).get("decision", "unknown")
+        price = item.get("candidate_material", {}).get("price_krw")
+        if _positive_int(price) is None:
+            raise RuntimeError("선택한 후보에 확정 단가가 없어 PO를 생성할 수 없습니다.")
         raise RuntimeError(f"Selected candidate cannot be converted to PO: {decision}")
     selected_report = dict(evaluation_report)
     selected_report["top_candidate_id"] = candidate_id
@@ -864,7 +884,7 @@ def render_step_tracker(step: str, approval_ready: bool) -> None:
 
 def render_sidebar(shortages: pd.DataFrame, selected_default: str | None) -> str:
     has_serpapi = bool(os.environ.get("SERPAPI_API_KEY"))
-    has_openai = bool(os.environ.get("OPENAI_API_KEY"))
+    has_openai = bool(os.environ.get("OPENAI_API_KEY") or os.environ.get("GPT_API_KEY"))
 
     with st.container(border=True):
         st.markdown('<div class="sidebar-logo">Buy<span>Bee</span> 🐝</div>', unsafe_allow_html=True)
@@ -1051,9 +1071,16 @@ def render_pipeline_results(event: dict) -> None:
         hide_index=True,
     )
 
+    evaluated_items = (evaluation_report or {}).get("items", [])
     po_selectable_items = [
         item for item in (evaluation_report or {}).get("items", [])
         if is_candidate_po_selectable(item)
+    ]
+    price_missing_items = [
+        item for item in evaluated_items
+        if str(item.get("decision_context", {}).get("decision", "")).lower()
+        in {"recommend", "conditional_approve", "review_required"}
+        and _positive_int(item.get("candidate_material", {}).get("price_krw")) is None
     ]
 
     if top_item:
@@ -1114,7 +1141,10 @@ def render_pipeline_results(event: dict) -> None:
             )
             st.rerun()
     elif evaluation_report:
-        st.info("PO로 전환할 수 있는 후보가 없습니다. reject 후보만 있는지 평가 결과를 확인해 주세요.")
+        if price_missing_items:
+            st.warning("PO로 전환 가능한 평가 후보는 있지만 확정 단가가 없습니다. 단가가 확인된 후보를 선택하거나 가격 추출 후 다시 실행해 주세요.")
+        else:
+            st.info("PO로 전환할 수 있는 후보가 없습니다. reject 후보만 있는지 평가 결과를 확인해 주세요.")
 
     if False and top_item:
         candidate = top_item.get("candidate_material", {})
