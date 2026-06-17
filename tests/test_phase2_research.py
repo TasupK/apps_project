@@ -38,12 +38,14 @@ class Phase2ResearchTests(unittest.TestCase):
     def setUp(self):
         self._original_search_web = web_research_agent.search_web
         self._original_fetch_page_text = web_research_agent.fetch_page_text
+        self._original_fetch_page_html_and_text = web_research_agent.fetch_page_html_and_text
         self._original_extract_candidate_details = web_research_agent.extract_candidate_details
         self._original_get_exchange_rate_to_krw = web_research_agent.get_exchange_rate_to_krw
 
     def tearDown(self):
         web_research_agent.search_web = self._original_search_web
         web_research_agent.fetch_page_text = self._original_fetch_page_text
+        web_research_agent.fetch_page_html_and_text = self._original_fetch_page_html_and_text
         web_research_agent.extract_candidate_details = self._original_extract_candidate_details
         web_research_agent.get_exchange_rate_to_krw = self._original_get_exchange_rate_to_krw
 
@@ -410,8 +412,10 @@ class Phase2ResearchTests(unittest.TestCase):
         self.assertFalse(first["leadtime_listed"])
 
     def test_llm_extraction_enriches_live_candidate_stubs(self):
+        _page_text = "Price KRW 15000. Ships in 1 day. In stock. 6204-ZZ 20mm 47mm 14mm steel."
         web_research_agent.search_web = _fake_verified_search_web
-        web_research_agent.fetch_page_text = lambda _url: "Price KRW 15000. Ships in 1 day. In stock. 6204-ZZ 20mm 47mm 14mm steel."
+        web_research_agent.fetch_page_text = lambda _url: _page_text
+        web_research_agent.fetch_page_html_and_text = lambda _url: ("", _page_text)
         web_research_agent.extract_candidate_details = _fake_extract_candidate_details
         shortage_event = load_shortage_event(DEFAULT_SAMPLE_INPUT)
         report = build_candidate_results(

@@ -12,6 +12,7 @@ from agents.evaluation_agent import (
     load_fastener_inputs_from_csv,
     parse_bearing_spec,
 )
+from agents.llm_explainer import answer_report_question
 from agents.reporting_agent import write_evaluation_report
 from tools.spec_normalizer import parse_fastener_spec
 
@@ -241,6 +242,34 @@ class Phase3EvaluationTests(unittest.TestCase):
         self.assertEqual(batch["top_candidate_id"], "CAND-001")
         self.assertEqual(batch["next_action"], "approval_pending")
         self.assertEqual(batch["items"][0]["decision_context"]["decision"], "conditional_approve")
+
+    def test_batch_report_includes_explanation_text(self):
+        candidate = build_candidate("Hex head bolt M10 thread pitch 1.5 length 50mm. Stainless steel 316.")
+        report = evaluate_fastener_candidate(TARGET, candidate)
+        batch = build_batch_report([report], mode="urgent")
+        explanation = batch["items"][0]["llm_explanation"]
+        self.assertEqual(explanation["provider"], "rule_fallback")
+        self.assertIn("최종 점수", explanation["text"])
+
+    def test_report_question_answer_uses_evaluation_context(self):
+        candidate = build_candidate("Hex head bolt M10 thread pitch 1.5 length 50mm. Stainless steel 316.")
+        report = evaluate_fastener_candidate(TARGET, candidate)
+        batch = build_batch_report([report], mode="urgent")
+        answer = answer_report_question(
+            "왜 1순위야?",
+            {
+                "material_id": TARGET["material_id"],
+                "material_name": TARGET["description"],
+                "current_stock": 1,
+                "safety_stock": 10,
+                "shortage_qty": 9,
+                "technical_specification": TARGET["spec_text"],
+            },
+            batch,
+            {"query_used": ["bolt"]},
+        )
+        self.assertIn("CAND-001", answer)
+        self.assertIn("최종 점수", answer)
 
     def test_evaluate_fastener_candidates_from_csv(self):
         batch = evaluate_fastener_candidates_from_csv()

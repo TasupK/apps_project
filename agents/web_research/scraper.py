@@ -35,8 +35,13 @@ class _HTMLTextExtractor(HTMLParser):
         return " ".join(self._parts)
 
 
-def fetch_page_text(url: str, max_chars: int = DEFAULT_PAGE_TEXT_LIMIT) -> str:
-    """Fetch a verified URL and return compact visible page text."""
+def fetch_page_html_and_text(url: str, max_chars: int = DEFAULT_PAGE_TEXT_LIMIT) -> tuple[str, str]:
+    """Fetch a URL and return *(raw_html, stripped_text)* in a single HTTP request.
+
+    *raw_html* preserves ``<script>`` blocks (needed for JSON-LD extraction).
+    *stripped_text* has all tags removed and is suitable for regex / LLM extraction.
+    Raises ``RuntimeError`` on network or decompression failure.
+    """
     request = urllib.request.Request(
         url,
         headers={
@@ -53,17 +58,20 @@ def fetch_page_text(url: str, max_chars: int = DEFAULT_PAGE_TEXT_LIMIT) -> str:
     )
     try:
         with urlopen(request, timeout=30) as response:
-            raw = response.read(max_chars * 4)
             content_type = response.headers.get("Content-Type", "")
-            content_encoding = response.headers.get("Content-Encoding", "")
+            content_encoding = response.headers.get("Content-Encoding", "").lower()
+            # Compressed responses must be read in full before decompression —
+            # truncating a gzip/deflate stream mid-way causes CRC errors.
+            # For plain text we still cap reads to avoid huge pages.
+            is_compressed = any(enc in content_encoding for enc in ("gzip", "deflate", "br"))
+            raw = response.read() if is_compressed else response.read(max_chars * 4)
     except (OSError, urllib.error.HTTPError) as exc:
         raise RuntimeError(f"page fetch failed: {exc}") from exc
 
-    encoding = content_encoding.lower()
     try:
-        if "gzip" in encoding:
+        if "gzip" in content_encoding:
             raw = gzip.decompress(raw)
-        elif "deflate" in encoding:
+        elif "deflate" in content_encoding:
             raw = zlib.decompress(raw)
     except (EOFError, OSError, zlib.error) as exc:
         raise RuntimeError(f"page decompression failed: {exc}") from exc
@@ -72,8 +80,15 @@ def fetch_page_text(url: str, max_chars: int = DEFAULT_PAGE_TEXT_LIMIT) -> str:
     html = raw.decode(charset, errors="replace")
     parser = _HTMLTextExtractor()
     parser.feed(html)
-    text = re.sub(r"\s+", " ", parser.text() or html).strip()
-    return text[:max_chars]
+    stripped = re.sub(r"\s+", " ", parser.text() or html).strip()
+    return html, stripped[:max_chars]
+
+
+
+def fetch_page_text(url: str, max_chars: int = DEFAULT_PAGE_TEXT_LIMIT) -> str:
+    """Fetch a verified URL and return compact visible page text (tags stripped)."""
+    _, text = fetch_page_html_and_text(url, max_chars=max_chars)
+    return text
 
 
 def _charset_from_content_type(content_type: str) -> str | None:

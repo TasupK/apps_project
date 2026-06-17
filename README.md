@@ -46,6 +46,14 @@ python run_pipeline.py --auto-approve
 
 실제 웹 검색 실행에는 `SERPAPI_API_KEY`가 필요합니다. `OPENAI_API_KEY`가 있으면 검색 쿼리 생성과 상세 추출에 LLM을 사용하고, 없으면 결정적 검색어와 검색 결과 스니펫만 사용합니다.
 
+Phase 3 추천/반려 설명과 Phase 5 리포트 기반 질문 응답은 기본적으로 룰 기반 fallback 문장을 사용합니다. LLM 문장 생성을 켜려면 `.env`에 다음 값을 설정합니다.
+
+```bash
+BUYBEE_ENABLE_LLM_EXPLANATIONS=true
+BUYBEE_ENABLE_LLM_CHAT=true
+OPENAI_API_KEY=...
+```
+
 ## Phase 5 산출물
 
 - `streamlit_hybrid_app.py`: DB 재고 리스크, 실제 검색 후보 비교, 승인 게이트, PO 결과를 보여주는 Streamlit 앱

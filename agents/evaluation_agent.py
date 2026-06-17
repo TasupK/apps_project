@@ -16,6 +16,7 @@ if __package__ in {None, ""}:
     sys.path.append(str(Path(__file__).resolve().parents[1]))
 
 from agents.reporting_agent import write_evaluation_report
+from agents.llm_explainer import explain_candidate_decision
 from tools.spec_normalizer import FastenerSpec, parse_fastener_spec
 
 
@@ -1140,10 +1141,14 @@ def build_batch_report(reports: list[dict], mode: str) -> dict:
     sorted_reports = sorted(
         reports,
         key=lambda report: (
+            1 if report["candidate_material"].get("price_krw") is None else 0,
             _decision_priority(report["decision_context"]["decision"]),
             -report["scores"]["final_score"],
         ),
     )
+    for report in sorted_reports:
+        report["llm_explanation"] = explain_candidate_decision(report)
+
     decision_counts: dict[str, int] = {}
     for report in sorted_reports:
         decision = report["decision_context"]["decision"]

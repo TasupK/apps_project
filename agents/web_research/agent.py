@@ -20,10 +20,14 @@ from .extractor import (
     _apply_min_price,
     _enrich_candidate_from_page,
     _merge_candidate_details,
+    _normalize_extracted_details,
     _normalize_source_type,
+    _parse_price_from_jsonld,
     _vendor_name_from_search_result,
+    extract_candidate_details_from_text,
 )
-from .scraper import _search_result_text
+from .scraper import fetch_page_html_and_text, _search_result_text
+
 
 def build_candidate_results(
     shortage_event: dict,
@@ -103,10 +107,46 @@ def _candidate_stubs_from_verified_search_results(
             "spec_evidence": "Verified search result only. Detailed price, stock, lead time, and spec extraction is pending.",
         }
 
+        # ── Tier 0: deterministic extraction — always runs, no API key needed ──
+        # 1) Parse prices / stock from the search result snippet (free — already in memory).
+        snippet_details = extract_candidate_details_from_text(candidate["spec_text"])
+        candidate = _merge_candidate_details(candidate, snippet_details)
+
+        # 2) Fetch the product page and run JSON-LD + regex extraction.
+        #    This is done WITHOUT any LLM call — it only costs an HTTP request.
+        if result.get("url"):
+            try:
+                raw_html, page_text = fetch_page_html_and_text(result["url"])
+                page_details = extract_candidate_details_from_text(page_text)
+                # JSON-LD extraction on raw HTML (catches JS-rendered prices on WooCommerce/Shopify)
+                jsonld_price = _parse_price_from_jsonld(raw_html)
+                if jsonld_price:
+                    raw_price_text, listed_price, listed_currency = jsonld_price
+                    jsonld_details = _normalize_extracted_details({
+                        "raw_price_text": raw_price_text,
+                        "listed_price": listed_price,
+                        "listed_currency": listed_currency,
+                        "price_listed": True,
+                        "spec_evidence": f"JSON-LD structured data: {raw_price_text}.",
+                    })
+                    page_details = _merge_candidate_details(page_details, jsonld_details)
+                candidate = _merge_candidate_details(candidate, page_details)
+                if candidate.get("price_krw") or candidate.get("stock_listed"):
+                    candidate["spec_evidence"] = (
+                        page_details.get("spec_evidence")
+                        or snippet_details.get("spec_evidence")
+                        or candidate["spec_evidence"]
+                    )
+            except Exception:
+                pass  # network error — keep snippet-only data
+
+        # ── Tier 1: LLM extraction (only when extraction_mode="llm") ──
         if extraction_mode == "llm" and shortage_event:
             candidate = _enrich_candidate_from_page(candidate, shortage_event, model=llm_model)
+
         candidates.append(candidate)
     return _apply_min_price(candidates)
+
 
 
 def _filter_relevant_search_results(results: list[dict], shortage_event: dict) -> list[dict]:

@@ -1,4 +1,4 @@
-﻿from __future__ import annotations
+from __future__ import annotations
 
 import io
 import json
@@ -10,6 +10,7 @@ import pandas as pd
 import streamlit as st
 
 from agents.evaluation_agent import evaluate_candidates_from_phase2_results
+from agents.llm_explainer import answer_report_question
 from agents.monitor_agent import scan_inventory
 from agents.reporting_agent import write_evaluation_report
 from agents.web_research.agent import run_web_research
@@ -578,6 +579,7 @@ def build_candidate_table(candidate_results: dict | None, evaluation_report: dic
             decision = item.get("decision_context", {})
             trust_notes = item.get("source_trust_notes", {})
             vendor_notes = item.get("vendor_trust_notes", {})
+            explanation = item.get("llm_explanation", {}).get("text")
             rows.append(
                 {
                     "candidate_id": candidate.get("candidate_id"),
@@ -593,6 +595,7 @@ def build_candidate_table(candidate_results: dict | None, evaluation_report: dic
                     "final_score": scores.get("final_score"),
                     "risk_note": " / ".join(vendor_notes.get("risk_factors", []) + trust_notes.get("risk_factors", []))
                     or decision.get("recommendation_reason"),
+                    "explanation": explanation or decision.get("recommendation_reason"),
                     "source_url": candidate.get("source_url"),
                 }
             )
@@ -655,13 +658,25 @@ def _positive_int(value) -> int | None:
     return number if number > 0 else None
 
 
+_VIABLE_DECISIONS = {"recommend", "conditional_approve", "review_required"}
+
+
+def is_candidate_viable(item: dict | None) -> bool:
+    """Viable = worth showing in the selection dropdown (price may be missing)."""
+    if not item:
+        return False
+    decision = str(item.get("decision_context", {}).get("decision", "")).lower()
+    return decision in _VIABLE_DECISIONS
+
+
 def is_candidate_po_selectable(item: dict | None) -> bool:
+    """PO-ready = viable AND has a confirmed positive price."""
     if not item:
         return False
     decision = str(item.get("decision_context", {}).get("decision", "")).lower()
     candidate = item.get("candidate_material", {})
     return (
-        decision in {"recommend", "conditional_approve", "review_required"}
+        decision in _VIABLE_DECISIONS
         and _positive_int(candidate.get("price_krw")) is not None
     )
 
@@ -745,8 +760,99 @@ def write_po_from_phase4_state(final_state: dict, evaluation_report: dict, selec
 
 # ── Assistant logic ────────────────────────────────────────────────────────────
 
-def assistant_reply(prompt: str, event: dict) -> str:
+def _is_global_shortage_query(text: str) -> bool:
+    """Return True when the user is asking about ALL materials, not just the selected one."""
+    global_words = {"전체", "모든", "다", "목록", "어떤", "어느", "종류", "현황", "전부"}
+    material_words = {"자재", "부족", "재고", "재고현황", "문제", "현황"}
+    has_global = any(w in text for w in global_words)
+    has_material = any(w in text for w in material_words)
+    # explicit phrases also trigger regardless
+    explicit = any(p in text for p in ["전체 자재", "모든 자재", "어떤 자재", "부족 현황", "재고 현황", "자재 현황", "부족한 자재"])
+    return explicit or (has_global and has_material)
+
+
+def _global_shortage_summary() -> str:
+    inventory = load_inventory_from_db()
+    shortages = shortage_rows(inventory)
+    if shortages.empty:
+        return "현재 안전재고 이하인 자재가 없습니다. 모든 자재가 정상 재고 수준입니다."
+
+    lines = [f"현재 부족 자재 **{len(shortages)}종**:\n"]
+    for _, row in shortages.iterrows():
+        risk_pct = int(row["risk_ratio"] * 100)
+        if risk_pct < 30:
+            badge = "🔴 위험"
+        elif risk_pct < 70:
+            badge = "🟡 주의"
+        else:
+            badge = "🟠 경고"
+        lines.append(
+            f"- {badge} **{row['material_id']}** ({row.get('material_name', '')})"
+            f" — 재고율 {risk_pct}%, 부족량 {int(row['shortage_qty'])}개"
+            f" [현재 {int(row['current_stock'])} / 안전 {int(row['safety_stock'])}]"
+        )
+
+    lines.append("\n왼쪽 패널에서 자재를 선택하면 해당 자재의 대체 후보를 검색할 수 있습니다.")
+    return "\n".join(lines)
+
+
+def _run_pipeline_with_progress(event: dict, force_refresh: bool = False) -> tuple[dict, dict]:
+    """Run web research + evaluation, streaming step status via st.status."""
+    candidate_path = candidate_output_path(event["material_id"])
+    evaluation_path = evaluation_output_path(event["material_id"])
+
+    if not force_refresh and candidate_path.exists() and evaluation_path.exists():
+        try:
+            with open(candidate_path, "r", encoding="utf-8") as f:
+                candidate_results = json.load(f)
+            with open(evaluation_path, "r", encoding="utf-8") as f:
+                evaluation_report = json.load(f)
+            if candidate_results.get("candidates"):
+                with st.status("기존 데이터 로드 중...", expanded=False) as pipeline_status:
+                    st.write(f"기존에 수집된 {len(candidate_results['candidates'])}개의 후보 정보를 디스크에서 로드했습니다.")
+                    pipeline_status.update(label="데이터 로드 완료", state="complete")
+                return candidate_results, evaluation_report
+        except Exception:
+            pass
+
+    has_serpapi = bool(os.environ.get("SERPAPI_API_KEY"))
+    has_openai = bool(os.environ.get("OPENAI_API_KEY") or os.environ.get("GPT_API_KEY"))
+    provider = "serpapi" if has_serpapi else "llm_plan"
+
+    with st.status("파이프라인 실행 중...", expanded=True) as pipeline_status:
+        mode_label = "SerpAPI 라이브 검색" if has_serpapi else "LLM 오프라인 계획"
+        st.write(f"**[Phase 2]** 웹 리서치 시작 — {mode_label}")
+        event_path = write_shortage_event(event)
+        candidate_results = run_web_research(
+            input_path=event_path,
+            output_path=candidate_path,
+            search_mode="live",
+            query_mode="llm" if has_openai else "deterministic",
+            extraction_mode="llm" if has_openai else "none",
+            search_provider=provider,
+            max_results_per_query=3,
+            max_candidates=6,
+        )
+        n_raw = len((candidate_results or {}).get("candidates", []))
+        st.write(f"**[Phase 2]** 완료 — 후보 {n_raw}개 수집")
+
+        st.write("**[Phase 3]** 후보 평가 중 — 스펙 매칭 · 신뢰도 · 리스크 분석")
+        evaluation_report = evaluate_candidates_from_phase2_results(candidate_path, mode="urgent")
+        write_evaluation_report(evaluation_report, evaluation_path)
+        n_evaluated = len((evaluation_report or {}).get("items", []))
+        action = (evaluation_report or {}).get("next_action", "—")
+        st.write(f"**[Phase 3]** 완료 — {n_evaluated}개 채점, 다음 액션: `{action}`")
+
+        pipeline_status.update(label="파이프라인 완료", state="complete", expanded=False)
+
+    return candidate_results, evaluation_report
+
+
+def assistant_reply(prompt: str, event: dict, chat_history: list[dict] | None = None) -> str:
     text = prompt.strip().lower()
+
+    if _is_global_shortage_query(text):
+        return _global_shortage_summary()
 
     if any(word in text for word in ["재고", "위험", "부족", "확인"]):
         st.session_state.step = "inventory_checked"
@@ -758,19 +864,30 @@ def assistant_reply(prompt: str, event: dict) -> str:
         )
 
     if any(word in text for word in ["대체", "찾아", "검색", "후보", "업체"]):
-        try:
-            with st.spinner("웹 리서치와 평가를 실행하는 중입니다..."):
-                candidate_results, evaluation_report = run_actual_pipeline(event)
-        except Exception as exc:
-            st.session_state.last_error = str(exc)
-            st.session_state.approval_ready = False
-            return f"파이프라인 실행이 실패했습니다.\n\n`{exc}`"
+        # 이미 같은 자재에 대한 평가 결과가 세션에 있으면 재실행하지 않음.
+        # "다시", "새로", "재검색" 키워드가 있을 때만 새 검색을 실행.
+        force_refresh = any(w in text for w in ["다시", "새로", "재검색", "refresh", "다시해", "다시 해"])
+        has_cached = (
+            st.session_state.get("candidate_results")
+            and st.session_state.get("evaluation_report")
+            and st.session_state.get("active_pipeline_material_id") == event["material_id"]
+        )
+        if has_cached and not force_refresh:
+            candidate_results = st.session_state.candidate_results
+            evaluation_report = st.session_state.evaluation_report
+        else:
+            try:
+                candidate_results, evaluation_report = _run_pipeline_with_progress(event, force_refresh=force_refresh)
+            except Exception as exc:
+                st.session_state.last_error = str(exc)
+                st.session_state.approval_ready = False
+                return f"파이프라인 실행이 실패했습니다.\n\n`{exc}`"
+
 
         st.session_state.candidate_results = candidate_results
         st.session_state.evaluation_report = evaluation_report
         st.session_state.active_pipeline_material_id = event["material_id"]
         st.session_state.step = "candidates_loaded"
-        st.session_state.selected_candidate_id = None
         st.session_state.po_created = False
         st.session_state.po_row = None
 
@@ -780,6 +897,10 @@ def assistant_reply(prompt: str, event: dict) -> str:
         top_item = get_top_evaluation_item(evaluation_report)
         top_candidate = top_item.get("candidate_material", {}) if top_item else {}
 
+        # 1순위 후보를 selectbox 기본값으로 자동 설정
+        top_candidate_id = top_candidate.get("candidate_id")
+        st.session_state.selected_candidate_id = top_candidate_id
+
         if action == "approval_pending":
             return (
                 f"후보 {len(table)}개를 수집하고 Phase 3/4 승인 대기 조건을 확인했습니다. "
@@ -787,7 +908,10 @@ def assistant_reply(prompt: str, event: dict) -> str:
             )
         if action == "manual_review":
             st.session_state.approval_ready = True
-            return "후보를 찾았습니다. 후보 표 아래에서 최종 후보를 선택하면 PO를 생성할 수 있습니다."
+            return (
+                f"후보 {len(table)}개를 찾았습니다. **{top_candidate.get('vendor_name')} / {top_candidate.get('candidate_id')}**가 "
+                f"1순위로 선택되어 있습니다. 후보 표 아래에서 확인 후 PO를 생성할 수 있습니다."
+            )
         return "PO로 전환할 수 있는 후보를 찾지 못했습니다. reject 후보만 있는지 평가 결과를 확인해 주세요."
 
     if any(word in text for word in ["반려", "거절", "보류", "중단"]):
@@ -812,6 +936,17 @@ def assistant_reply(prompt: str, event: dict) -> str:
             f"선택한 후보 기준으로 `{PO_FILE.name}`를 생성했습니다.\n\n"
             f"{po_row['PO_DRAFT_NO']} / {po_row['VENDOR_NAME']} / "
             f"{po_row['ORDER_QTY']}개 / {po_row['TOTAL_AMOUNT_KRW']:,}원"
+        )
+
+    if st.session_state.evaluation_report:
+        return answer_report_question(
+            prompt,
+            event,
+            st.session_state.evaluation_report,
+            st.session_state.candidate_results,
+            st.session_state.po_row,
+            chat_history=chat_history,
+            budget_limit_krw=BUDGET_LIMIT_KRW,
         )
 
     return "재고 확인, 대체품 검색, 승인, 반려 중 하나로 진행할 수 있습니다."
@@ -1065,28 +1200,20 @@ def render_pipeline_results(event: dict) -> None:
             "candidate_id", "vendor_name", "decision", "risk_level",
             "price_krw", "lead_time_days", "source_type",
             "compatibility_score", "vendor_trust_score", "source_trust_score", "final_score",
-            "risk_note", "source_url",
+            "risk_note", "explanation", "source_url",
         ]],
         use_container_width=True,
         hide_index=True,
     )
 
     evaluated_items = (evaluation_report or {}).get("items", [])
-    po_selectable_items = [
-        item for item in (evaluation_report or {}).get("items", [])
-        if is_candidate_po_selectable(item)
-    ]
-    price_missing_items = [
-        item for item in evaluated_items
-        if str(item.get("decision_context", {}).get("decision", "")).lower()
-        in {"recommend", "conditional_approve", "review_required"}
-        and _positive_int(item.get("candidate_material", {}).get("price_krw")) is None
-    ]
+    viable_items = [item for item in evaluated_items if is_candidate_viable(item)]
 
     if top_item:
         candidate = top_item.get("candidate_material", {})
         decision = top_item.get("decision_context", {})
         scores = top_item.get("scores", {})
+        explanation = top_item.get("llm_explanation", {}).get("text") or decision.get("recommendation_reason", "—")
         url = candidate.get("source_url", "")
         url_html = f'<a href="{url}" target="_blank" style="color:var(--accent);font-size:0.78rem;">{url}</a>' if url else "—"
         st.markdown(
@@ -1099,23 +1226,26 @@ def render_pipeline_results(event: dict) -> None:
                     리스크: <strong>{decision.get("risk_level", "—")}</strong> &nbsp;|&nbsp;
                     최종 점수: <strong>{scores.get("final_score", "—")}</strong>
                 </div>
+                <div class="tc-meta">{explanation}</div>
                 <div style="margin-top:6px;">{url_html}</div>
             </div>
             """,
             unsafe_allow_html=True,
         )
 
-    if po_selectable_items:
-        options = [item.get("candidate_material", {}).get("candidate_id") for item in po_selectable_items]
+    if viable_items:
+        options = [item.get("candidate_material", {}).get("candidate_id") for item in viable_items]
         labels = {}
-        for item in po_selectable_items:
+        for item in viable_items:
             candidate = item.get("candidate_material", {})
             scores = item.get("scores", {})
             decision = item.get("decision_context", {})
             cid = candidate.get("candidate_id")
+            price = _positive_int(candidate.get("price_krw"))
+            price_label = f"{price:,}원" if price else "가격 미상"
             labels[cid] = (
                 f"{cid} | {candidate.get('vendor_name', '-')} | "
-                f"{decision.get('decision', '-')} | score {scores.get('final_score', '-')}"
+                f"{decision.get('decision', '-')} | score {scores.get('final_score', '-')} | {price_label}"
             )
         current = st.session_state.get("selected_candidate_id")
         index = options.index(current) if current in options else 0
@@ -1126,7 +1256,11 @@ def render_pipeline_results(event: dict) -> None:
             format_func=lambda value: labels.get(value, str(value)),
             key="selected_candidate_id",
         )
-        if st.button("선택한 후보로 PO 생성", use_container_width=True):
+        selected_item = next((x for x in viable_items if x.get("candidate_material", {}).get("candidate_id") == selected), None)
+        selected_price = _positive_int((selected_item or {}).get("candidate_material", {}).get("price_krw")) if selected_item else None
+        if selected_price is None:
+            st.warning("선택한 후보의 확정 단가가 없습니다. PO 생성 전에 단가를 확인하세요.")
+        if st.button("선택한 후보로 PO 생성", use_container_width=True, disabled=(selected_price is None)):
             try:
                 final_state = run_phase4_approval(event, evaluation_report, selected)
                 po_row = write_po_from_phase4_state(final_state, evaluation_report, selected)
@@ -1141,10 +1275,7 @@ def render_pipeline_results(event: dict) -> None:
             )
             st.rerun()
     elif evaluation_report:
-        if price_missing_items:
-            st.warning("PO로 전환 가능한 평가 후보는 있지만 확정 단가가 없습니다. 단가가 확인된 후보를 선택하거나 가격 추출 후 다시 실행해 주세요.")
-        else:
-            st.info("PO로 전환할 수 있는 후보가 없습니다. reject 후보만 있는지 평가 결과를 확인해 주세요.")
+        st.info("PO로 전환할 수 있는 후보가 없습니다. reject 후보만 있는지 평가 결과를 확인해 주세요.")
 
     if False and top_item:
         candidate = top_item.get("candidate_material", {})
@@ -1576,7 +1707,8 @@ def render_assistant(event: dict) -> None:
     prompt = st.chat_input("재고 확인해줘 / 대체품 찾아줘 / 승인 / 반려")
     if prompt:
         st.session_state.messages.append({"role": "user", "content": prompt})
-        response = assistant_reply(prompt, event)
+        history_before = st.session_state.messages[:-1]
+        response = assistant_reply(prompt, event, chat_history=history_before)
         st.session_state.messages.append({"role": "assistant", "content": response})
         st.rerun()
 
@@ -1585,7 +1717,7 @@ def render_assistant(event: dict) -> None:
         reset_demo_state()
         st.rerun()
     if col2.button("검색 실행", use_container_width=True):
-        response = assistant_reply("대체품 찾아줘", event)
+        response = assistant_reply("대체품 찾아줘", event, chat_history=st.session_state.messages)
         st.session_state.messages.append({"role": "assistant", "content": response})
         st.rerun()
 

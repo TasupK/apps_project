@@ -1,12 +1,13 @@
 from __future__ import annotations
 
+import json as _json
 import re
 import time
 import urllib.parse
 
 from .config import *
 from .llm_client import extract_candidate_details_with_llm
-from .scraper import fetch_page_text, _get_json, capture_page_screenshot
+from .scraper import fetch_page_html_and_text, fetch_page_text, _get_json, capture_page_screenshot
 
 # exchange rate cache: currency -> (rate, fetched_at_epoch)
 _RATE_CACHE: dict[str, tuple[float, float]] = {}
@@ -208,12 +209,29 @@ def _infer_source_type(url: object, title: object = None, snippet: object = None
 
 def _enrich_candidate_from_page(candidate: dict, shortage_event: dict, model: str = DEFAULT_LLM_MODEL) -> dict:
     try:
-        page_text = fetch_page_text(candidate["source_url"])
+        raw_html, page_text = fetch_page_html_and_text(candidate["source_url"])
         print(f"[DEBUG] Tier 1 fetch success: {len(page_text)} chars from {candidate['source_url']}")
     except RuntimeError as e:
         print(f"[DEBUG] Tier 1 fetch failed for {candidate['source_url']}: {e}")
-        page_text = ""
-        
+        raw_html, page_text = "", ""
+
+    # --- JSON-LD extraction from raw HTML (works even for JS-rendered price elements
+    # because WooCommerce/Shopify embed schema.org data in <script> tags in the initial HTML)
+    jsonld_details: dict = {}
+    if raw_html:
+        jsonld_price = _parse_price_from_jsonld(raw_html)
+        if jsonld_price:
+            raw_price_text, listed_price, listed_currency = jsonld_price
+            jsonld_details = {
+                "raw_price_text": raw_price_text,
+                "listed_price": listed_price,
+                "listed_currency": listed_currency,
+                "price_listed": True,
+                "spec_evidence": f"JSON-LD structured data: {raw_price_text}.",
+            }
+            jsonld_details = _normalize_extracted_details(jsonld_details)
+            print(f"[DEBUG] JSON-LD price found for {candidate.get('candidate_id')}: {raw_price_text}")
+
     extraction_text = " ".join(
         part
         for part in [page_text, str(candidate.get("spec_text") or "")]
@@ -228,12 +246,16 @@ def _enrich_candidate_from_page(candidate: dict, shortage_event: dict, model: st
         # Tier 1: Text-only LLM extraction
         details = extract_candidate_details(candidate, page_text, shortage_event, extraction_mode="llm", model=model)
         details = _merge_extracted_fallback(details, text_details)
+
+    # Merge JSON-LD price in (highest priority — structured data is reliable)
+    if jsonld_details:
+        details = _merge_extracted_fallback(jsonld_details, details)
         
-    # Check if Tier 1 failed to get essential commercial data (price or stock)
+    # Check if Tier 1 failed to get price — trigger vision fallback regardless of stock_listed.
+    # (stock info can come from the search snippet while price needs a rendered page screenshot)
     if (
         details.get("price_krw") is None
         and details.get("raw_price_text") is None
-        and not details.get("stock_listed")
         and not _is_llm_quota_error(details.get("_llm_error"))
     ):
         print(f"[DEBUG] Tier 2 fallback triggered for {candidate.get('candidate_id')}")
@@ -264,7 +286,12 @@ def _enrich_candidate_from_page(candidate: dict, shortage_event: dict, model: st
 
 
 def extract_candidate_details_from_text(page_text: str) -> dict:
-    """Best-effort deterministic extraction for obvious commercial text."""
+    """Best-effort deterministic extraction from already-stripped page text.
+
+    NOTE: This function receives *stripped* text (HTML tags already removed).
+    JSON-LD extraction is therefore NOT done here — use ``_parse_price_from_jsonld``
+    on the raw HTML *before* stripping instead (see ``_enrich_candidate_from_page``).
+    """
     text = " ".join(str(page_text or "").split())
     if not text:
         return {}
@@ -300,6 +327,97 @@ def extract_candidate_details_from_text(page_text: str) -> dict:
     return _normalize_extracted_details(details)
 
 
+def _parse_price_from_jsonld(html: str) -> tuple[str, float, str] | None:
+    """Extract price from JSON-LD schema.org/Product blocks embedded in page HTML.
+
+    Handles both the raw HTML string and plain text (where the script tags may have
+    been stripped by the HTML parser — in that case the JSON content is still present
+    as inline text).
+    """
+    # Match <script type="application/ld+json">...</script> blocks
+    pattern = re.compile(
+        r'<script[^>]+type=["\']application/ld\+json["\'][^>]*>\s*([\s\S]*?)</script>',
+        re.IGNORECASE,
+    )
+    blobs: list[str] = pattern.findall(html)
+
+    # Fallback: if the HTML parser already stripped tags, look for raw JSON objects
+    # that contain "@type" and "price" keys anywhere in the text.
+    if not blobs:
+        # Try to find JSON-like fragments with offer/price fields
+        blobs = re.findall(r'\{[^{}]{0,2000}"@type"[^{}]{0,2000}\}', html)
+
+    for blob in blobs:
+        try:
+            data = _json.loads(blob.strip())
+        except (_json.JSONDecodeError, ValueError):
+            continue
+
+        price_info = _extract_price_from_jsonld_node(data)
+        if price_info:
+            return price_info
+
+    return None
+
+
+def _extract_price_from_jsonld_node(node: object) -> tuple[str, float, str] | None:
+    """Recursively walk a JSON-LD node looking for schema.org price information."""
+    if isinstance(node, list):
+        for item in node:
+            result = _extract_price_from_jsonld_node(item)
+            if result:
+                return result
+        return None
+
+    if not isinstance(node, dict):
+        return None
+
+    # Recurse into @graph arrays
+    if "@graph" in node:
+        result = _extract_price_from_jsonld_node(node["@graph"])
+        if result:
+            return result
+
+    # Look for Offer or Product nodes with a price
+    node_type = str(node.get("@type") or "").lower()
+    if node_type in {"product", "offer", "aggregateoffer", "pricespecification", "unitpricespecification"}:
+        # Direct price field (also handles schema.org/PriceSpecification pattern)
+        raw_price = node.get("price") or node.get("lowPrice") or node.get("highPrice")
+        currency = str(node.get("priceCurrency") or "").strip().upper() or None
+        if raw_price is not None and currency:
+            amount = _to_float_or_none(str(raw_price).replace(",", ""))
+            if amount is not None and amount > 0:
+                normalized_currency = _normalize_currency(currency)
+                if normalized_currency:
+                    raw_text = f"{currency} {raw_price}"
+                    return raw_text, amount, normalized_currency
+
+        # Recurse into priceSpecification sub-object (BigCommerce / some WooCommerce sites
+        # nest the price inside offers.priceSpecification rather than offers.price)
+        price_spec = node.get("priceSpecification")
+        if price_spec:
+            result = _extract_price_from_jsonld_node(price_spec)
+            if result:
+                return result
+
+        # Recurse into offers sub-object
+        offers = node.get("offers")
+        if offers:
+            result = _extract_price_from_jsonld_node(offers)
+            if result:
+                return result
+
+
+    # Recurse into all dict values
+    for value in node.values():
+        if isinstance(value, (dict, list)):
+            result = _extract_price_from_jsonld_node(value)
+            if result:
+                return result
+
+    return None
+
+
 def _merge_extracted_fallback(details: dict, fallback: dict) -> dict:
     merged = dict(details or {})
     for key, value in (fallback or {}).items():
@@ -328,7 +446,7 @@ def _parse_price_from_text(text: str) -> tuple[str, float, str] | None:
             currency_token, amount_text = match.group(1), match.group(2)
         currency = _normalize_currency(currency_token)
         amount = _parse_price_number(amount_text)
-        if currency and amount is not None:
+        if currency and amount is not None and amount > 0:
             return match.group(0), amount, currency
     return None
 

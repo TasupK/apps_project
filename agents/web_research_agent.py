@@ -20,6 +20,7 @@ from agents.web_research.validator import load_shortage_event, validate_candidat
 
 search_web = _search_engine.search_web
 fetch_page_text = _scraper.fetch_page_text
+fetch_page_html_and_text = _scraper.fetch_page_html_and_text
 extract_candidate_details = _extractor.extract_candidate_details
 get_exchange_rate_to_krw = _extractor.get_exchange_rate_to_krw
 
@@ -40,7 +41,9 @@ _merge_candidate_details = _extractor._merge_candidate_details
 def _sync_patchable_functions() -> None:
     _search_engine.search_web = search_web
     _scraper.fetch_page_text = fetch_page_text
+    _scraper.fetch_page_html_and_text = fetch_page_html_and_text
     _extractor.fetch_page_text = fetch_page_text
+    _extractor.fetch_page_html_and_text = fetch_page_html_and_text
     _extractor.extract_candidate_details = extract_candidate_details
     _extractor.get_exchange_rate_to_krw = get_exchange_rate_to_krw
 
